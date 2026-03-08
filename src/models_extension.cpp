@@ -1239,7 +1239,7 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 
 	answer = RunModelsSubprocessLoop(*conn.context, shell_state, question, shell_state.GetTerminalWidth(), istats);
 
-record_entry: {
+record_entry : {
 	double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 	auto &entry = state.history.back();
 	entry.answer = answer;
