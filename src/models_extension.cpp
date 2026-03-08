@@ -45,7 +45,7 @@ namespace duckdb {
 
 // System prompt sent to the claude subprocess.
 // Instructs it to use the SQL_QUERY: text protocol for querying the database.
-const char * const SUBPROCESS_SYSTEM_PROMPT =
+const char *const SUBPROCESS_SYSTEM_PROMPT =
     "You are a DuckDB SQL assistant. You are connected to a live, running DuckDB instance.\n"
     "This DuckDB instance is listening for queries in a loop: every SQL_QUERY: you emit is\n"
     "executed immediately and its full result is returned to you as the next message.\n"
@@ -83,7 +83,8 @@ const char * const SUBPROCESS_SYSTEM_PROMPT =
     "  SQL_QUERY: FROM llama_instructions WHERE task IN ('describe-table', 'profile-data')\n"
     "\n"
     "CONVERSATION HISTORY:\n"
-    "Previous Q&A is in the virtual table 'models_interactions' (id BIGINT, question VARCHAR, answer VARCHAR, elapsed_seconds DOUBLE, sql_expert_model VARCHAR, coordinator_model VARCHAR, stats VARCHAR).\n"
+    "Previous Q&A is in the virtual table 'models_interactions' (id BIGINT, question VARCHAR, answer VARCHAR, "
+    "elapsed_seconds DOUBLE, sql_expert_model VARCHAR, coordinator_model VARCHAR, stats VARCHAR).\n"
     "\n"
     "DUCKDB GOTCHAS (common mistakes to avoid):\n"
     "- duckdb_tables() takes NO arguments. Filter with WHERE:\n"
@@ -106,23 +107,20 @@ const char * const SUBPROCESS_SYSTEM_PROMPT =
 // ---------------------------------------------------------------------------
 
 struct ConversationEntry {
-	idx_t  id;
+	idx_t id;
 	string question;
 	string answer;          // empty when pending
 	double elapsed_seconds; // negative when pending
-	bool   pending;
+	bool pending;
 	string sql_expert_model;
 	string coordinator_model;
 	string stats; // JSON: {"sql_total":N,"sql_ok":N,"sql_error":N,"rounds":N,"delegations":N}
 
 	ConversationEntry(idx_t id, string question, string answer, double elapsed_seconds, bool pending,
-	                  string sql_expert_model = "", string coordinator_model = "",
-	                  string stats = "{}")
-	    : id(id), question(std::move(question)), answer(std::move(answer)),
-	      elapsed_seconds(elapsed_seconds), pending(pending),
-	      sql_expert_model(std::move(sql_expert_model)),
-	      coordinator_model(std::move(coordinator_model)),
-	      stats(std::move(stats)) {
+	                  string sql_expert_model = "", string coordinator_model = "", string stats = "{}")
+	    : id(id), question(std::move(question)), answer(std::move(answer)), elapsed_seconds(elapsed_seconds),
+	      pending(pending), sql_expert_model(std::move(sql_expert_model)),
+	      coordinator_model(std::move(coordinator_model)), stats(std::move(stats)) {
 	}
 };
 
@@ -134,12 +132,12 @@ struct ModelsExtensionState {
 	vector<ConversationEntry> history;
 
 	LlamaState llama;
-	string     llama_model_path;
-	int32_t    llama_n_ctx        = 8192;
-	int32_t    llama_n_gpu_layers = -1; // -1 = all on GPU
+	string llama_model_path;
+	int32_t llama_n_ctx = 8192;
+	int32_t llama_n_gpu_layers = -1; // -1 = all on GPU
 
 	LlamaState coordinator_llama;
-	string     coordinator_model_path;
+	string coordinator_model_path;
 };
 
 // Passed through TableFunction::function_info so the bind function can access state
@@ -154,7 +152,6 @@ struct ModelsTableFunctionInfo : public TableFunctionInfo {
 // Helpers
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // SQL safety guard
 // ---------------------------------------------------------------------------
@@ -165,12 +162,9 @@ bool IsSafeSQL(const string &sql) {
 		i++;
 	}
 	string prefix = StringUtil::Lower(sql.substr(i, 8));
-	return StringUtil::StartsWith(prefix, "select")  ||
-	       StringUtil::StartsWith(prefix, "with")    ||
-	       StringUtil::StartsWith(prefix, "from")    ||
-	       StringUtil::StartsWith(prefix, "show")    ||
-	       StringUtil::StartsWith(prefix, "describ") ||
-	       StringUtil::StartsWith(prefix, "pragma")  ||
+	return StringUtil::StartsWith(prefix, "select") || StringUtil::StartsWith(prefix, "with") ||
+	       StringUtil::StartsWith(prefix, "from") || StringUtil::StartsWith(prefix, "show") ||
+	       StringUtil::StartsWith(prefix, "describ") || StringUtil::StartsWith(prefix, "pragma") ||
 	       StringUtil::StartsWith(prefix, "explain");
 }
 
@@ -222,9 +216,13 @@ QueryExecutionResult ExecuteQuery(DatabaseInstance &db, const string &sql) {
 	try {
 		while (!truncated) {
 			auto chunk = result->Fetch();
-			if (!chunk || chunk->size() == 0) break;
+			if (!chunk || chunk->size() == 0)
+				break;
 			for (idx_t r = 0; r < chunk->size(); r++) {
-				if (rows.size() >= MAX_RESULT_ROWS) { truncated = true; break; }
+				if (rows.size() >= MAX_RESULT_ROWS) {
+					truncated = true;
+					break;
+				}
 				vector<string> row;
 				for (idx_t c = 0; c < chunk->ColumnCount(); c++) {
 					try {
@@ -249,18 +247,21 @@ QueryExecutionResult ExecuteQuery(DatabaseInstance &db, const string &sql) {
 	// Emit header + rows.
 	string out;
 	for (idx_t c = 0; c < result->names.size(); c++) {
-		if (c) out += '\t';
+		if (c)
+			out += '\t';
 		out += result->names[c];
 	}
 	out += '\n';
 	for (auto &row : rows) {
 		for (idx_t c = 0; c < row.size(); c++) {
-			if (c) out += '\t';
+			if (c)
+				out += '\t';
 			out += row[c];
 		}
 		out += '\n';
 	}
-	if (truncated) out += "(truncated after " + to_string(MAX_RESULT_ROWS) + " rows)\n";
+	if (truncated)
+		out += "(truncated after " + to_string(MAX_RESULT_ROWS) + " rows)\n";
 	return {false, out};
 }
 
@@ -271,13 +272,14 @@ QueryExecutionResult ExecuteQuery(DatabaseInstance &db, const string &sql) {
 // ---------------------------------------------------------------------------
 
 string ExtractSQLQuery(const string &text) {
-	static const char MARKER[]   = "SQL_QUERY:";
+	static const char MARKER[] = "SQL_QUERY:";
 	static const idx_t MARKER_LEN = sizeof(MARKER) - 1;
 
 	idx_t pos = 0;
 	while (pos + MARKER_LEN <= text.size()) {
 		idx_t found = text.find(MARKER, pos);
-		if (found == string::npos) return "";
+		if (found == string::npos)
+			return "";
 
 		bool at_line_start = (found == 0 || text[found - 1] == '\n');
 		if (at_line_start) {
@@ -285,7 +287,8 @@ string ExtractSQLQuery(const string &text) {
 			while (sql_start < text.size() && (text[sql_start] == ' ' || text[sql_start] == '\t'))
 				sql_start++;
 			idx_t sql_end = text.find('\n', sql_start);
-			if (sql_end == string::npos) sql_end = text.size();
+			if (sql_end == string::npos)
+				sql_end = text.size();
 			while (sql_end > sql_start && (text[sql_end - 1] == ' ' || text[sql_end - 1] == '\r'))
 				sql_end--;
 			return StripSpecialTokens(text.substr(sql_start, sql_end - sql_start));
@@ -303,8 +306,7 @@ string ExtractSQLQuery(const string &text) {
 // Launch a `claude -p` subprocess with the given system_prompt.
 // Returns the pid (child has called exec or _exit); parent gets pipe FILE handles.
 // Returns -1 on fork failure (pipes already closed).
-static pid_t SpawnModelsProcess(const char *system_prompt,
-                                FILE **to_claude_out, FILE **from_claude_out) {
+static pid_t SpawnModelsProcess(const char *system_prompt, FILE **to_claude_out, FILE **from_claude_out) {
 	int stdin_fds[2], stdout_fds[2];
 	if (pipe(stdin_fds) < 0 || pipe(stdout_fds) < 0) {
 		return -1;
@@ -313,23 +315,18 @@ static pid_t SpawnModelsProcess(const char *system_prompt,
 	pid_t pid = fork();
 	if (pid == 0) {
 		// Child: wire up pipes and exec claude
-		dup2(stdin_fds[0],  STDIN_FILENO);
+		dup2(stdin_fds[0], STDIN_FILENO);
 		dup2(stdout_fds[1], STDOUT_FILENO);
-		close(stdin_fds[0]);  close(stdin_fds[1]);
-		close(stdout_fds[0]); close(stdout_fds[1]);
+		close(stdin_fds[0]);
+		close(stdin_fds[1]);
+		close(stdout_fds[0]);
+		close(stdout_fds[1]);
 
 		// Allow nested invocation (we may be inside a Claude Code session)
 		unsetenv("CLAUDECODE");
 
-		execlp("claude", "claude",
-		       "-p",
-		       "--verbose",
-		       "--input-format",            "stream-json",
-		       "--output-format",           "stream-json",
-		       "--no-session-persistence",
-		       "--tools",                   "",
-		       "--system-prompt",           system_prompt,
-		       nullptr);
+		execlp("claude", "claude", "-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json",
+		       "--no-session-persistence", "--tools", "", "--system-prompt", system_prompt, nullptr);
 		// exec failed
 		const char msg[] = "Error: claude executable not found\n";
 		write(STDERR_FILENO, msg, sizeof(msg) - 1);
@@ -340,26 +337,30 @@ static pid_t SpawnModelsProcess(const char *system_prompt,
 	close(stdin_fds[0]);
 	close(stdout_fds[1]);
 
-	*to_claude_out   = fdopen(stdin_fds[1],  "w");
+	*to_claude_out = fdopen(stdin_fds[1], "w");
 	*from_claude_out = fdopen(stdout_fds[0], "r");
 	return pid;
 }
 
-static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &shell_state,
-                                      const string &user_input, idx_t term_width,
-                                      InteractionStats &stats) {
+static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &shell_state, const string &user_input,
+                                      idx_t term_width, InteractionStats &stats) {
 	FILE *to_claude = nullptr, *from_claude = nullptr;
 	pid_t pid = SpawnModelsProcess(SUBPROCESS_SYSTEM_PROMPT, &to_claude, &from_claude);
 	if (pid < 0 || !to_claude || !from_claude) {
-		shell_state.ShellPrintError(StringUtil::Format("Error: failed to spawn claude subprocess: %s\n", strerror(errno)));
-		if (to_claude)   fclose(to_claude);
-		if (from_claude) fclose(from_claude);
-		if (pid > 0) waitpid(pid, nullptr, 0);
+		shell_state.ShellPrintError(
+		    StringUtil::Format("Error: failed to spawn claude subprocess: %s\n", strerror(errno)));
+		if (to_claude)
+			fclose(to_claude);
+		if (from_claude)
+			fclose(from_claude);
+		if (pid > 0)
+			waitpid(pid, nullptr, 0);
 		return "";
 	}
 
 	// Send the initial user question
-	string init_msg = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":" + ModelsJsonEscapeString(user_input) + "}}\n";
+	string init_msg =
+	    "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":" + ModelsJsonEscapeString(user_input) + "}}\n";
 	DUCKDB_LOG(context, ModelsLogType, "out", init_msg);
 	fputs(init_msg.c_str(), to_claude);
 	fflush(to_claude);
@@ -373,41 +374,45 @@ static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &sh
 		bool got = false;
 		while ((c = fgetc(fp)) != EOF) {
 			got = true;
-			if (c == '\n') break;
+			if (c == '\n')
+				break;
 			line += (char)c;
 		}
-		if (!line.empty() && line.back() == '\r') line.pop_back();
+		if (!line.empty() && line.back() == '\r')
+			line.pop_back();
 		return got;
 	};
 
-	int    sql_rounds = 0;
-	bool   done       = false;
+	int sql_rounds = 0;
+	bool done = false;
 	string final_response;
 	string current_round_text; // text accumulated from assistant events in the current round
 
 	string line_buf_str;
 	while (!done && read_line(from_claude, line_buf_str)) {
-		if (line_buf_str.empty()) continue;
+		if (line_buf_str.empty())
+			continue;
 		const char *line_ptr = line_buf_str.c_str();
-		idx_t       len      = line_buf_str.size();
+		idx_t len = line_buf_str.size();
 
 		DUCKDB_LOG(context, ModelsLogType, "in", line_buf_str);
 
 		yyjson_doc *doc = yyjson_read(line_ptr, len, 0);
-		if (!doc) continue;
+		if (!doc)
+			continue;
 		yyjson_val *root = yyjson_doc_get_root(doc);
 
-		yyjson_val *type_v     = yyjson_obj_get(root, "type");
-		yyjson_val *subtype_v  = yyjson_obj_get(root, "subtype");
-		string event_type  = (type_v    && yyjson_is_str(type_v))    ? yyjson_get_str(type_v)    : "";
-		string event_sub   = (subtype_v && yyjson_is_str(subtype_v)) ? yyjson_get_str(subtype_v) : "";
+		yyjson_val *type_v = yyjson_obj_get(root, "type");
+		yyjson_val *subtype_v = yyjson_obj_get(root, "subtype");
+		string event_type = (type_v && yyjson_is_str(type_v)) ? yyjson_get_str(type_v) : "";
+		string event_sub = (subtype_v && yyjson_is_str(subtype_v)) ? yyjson_get_str(subtype_v) : "";
 
 		if (event_type == "assistant") {
 			// Capture text blocks and thinking from assistant events.
 			// The result event's "result" field sometimes only carries the first
 			// line; the full response accumulates here across all assistant events
 			// in the current round.
-			yyjson_val *msg_v     = yyjson_obj_get(root, "message");
+			yyjson_val *msg_v = yyjson_obj_get(root, "message");
 			yyjson_val *content_v = msg_v ? yyjson_obj_get(msg_v, "content") : nullptr;
 			if (content_v && yyjson_is_str(content_v)) {
 				// content is a plain string
@@ -418,7 +423,8 @@ static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &sh
 				for (idx_t i = 0; i < arr_len; i++) {
 					yyjson_val *block = yyjson_arr_get(content_v, i);
 					yyjson_val *btype = block ? yyjson_obj_get(block, "type") : nullptr;
-					if (!btype || !yyjson_is_str(btype)) continue;
+					if (!btype || !yyjson_is_str(btype))
+						continue;
 					string bt = yyjson_get_str(btype);
 					if (bt == "thinking") {
 						yyjson_val *thinking_v = yyjson_obj_get(block, "thinking");
@@ -426,10 +432,12 @@ static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &sh
 							// Take first line, truncate to 120 chars
 							string t = yyjson_get_str(thinking_v);
 							auto nl = t.find('\n');
-							if (nl != string::npos) t = t.substr(0, nl);
+							if (nl != string::npos)
+								t = t.substr(0, nl);
 							static constexpr idx_t PREFIX_LEN = 11; // "[thinking] "
 							idx_t max_text = term_width > PREFIX_LEN + 3 ? term_width - PREFIX_LEN - 3 : 0;
-							if (max_text > 0 && t.size() > max_text) t = t.substr(0, max_text) + "...";
+							if (max_text > 0 && t.size() > max_text)
+								t = t.substr(0, max_text) + "...";
 							shell_state.ShellPrintError("\r\033[K[thinking] " + t);
 						}
 					} else if (bt == "text") {
@@ -445,8 +453,7 @@ static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &sh
 				shell_state.ShellPrintError("\r\033[K");
 				yyjson_val *err_v = yyjson_obj_get(root, "error");
 				if (err_v && yyjson_is_str(err_v)) {
-					DUCKDB_LOG(context, ModelsLogType, "misc",
-					           StringUtil::Format("error: %s", yyjson_get_str(err_v)));
+					DUCKDB_LOG(context, ModelsLogType, "misc", StringUtil::Format("error: %s", yyjson_get_str(err_v)));
 					shell_state.ShellPrintError(StringUtil::Format("Error: %s\n", yyjson_get_str(err_v)));
 				}
 				done = true;
@@ -467,19 +474,23 @@ static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &sh
 					// TODO: log sql_exec + sql_result entries here for testability via duckdb_logs_parsed('Models')
 					auto qresult = ExecuteQuery(*context.db, sql);
 					stats.sql_total++;
-					if (qresult.is_error) stats.sql_error++; else stats.sql_ok++;
+					if (qresult.is_error)
+						stats.sql_error++;
+					else
+						stats.sql_ok++;
 
 					// Send result back for the next round
 					string feedback;
 					if (qresult.is_error) {
 						feedback = "SQL_ERROR: The query below failed. Do NOT retry the same query.\n"
 						           "Diagnose the error, fix the SQL, and issue a corrected SQL_QUERY.\n"
-						           "Failed SQL:\n" + sql + "\nError message:\n" + qresult.text;
+						           "Failed SQL:\n" +
+						           sql + "\nError message:\n" + qresult.text;
 					} else {
 						feedback = "SQL_RESULT:\n" + qresult.text;
 					}
 					string result_msg = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":" +
-					    ModelsJsonEscapeString(feedback) + "}}\n";
+					                    ModelsJsonEscapeString(feedback) + "}}\n";
 					DUCKDB_LOG(context, ModelsLogType, "out", result_msg);
 					fputs(result_msg.c_str(), to_claude);
 					fflush(to_claude);
@@ -528,10 +539,11 @@ static string RunModelsSubprocessLoop(ClientContext &context, BaseShellState &sh
 static string ExtractCoordCommand(const string &text, const char *marker, bool multiline = false) {
 	static constexpr idx_t MAX_LINE = 2048;
 	size_t mlen = strlen(marker);
-	size_t pos  = 0;
+	size_t pos = 0;
 	while (pos < text.size()) {
 		size_t found = text.find(marker, pos);
-		if (found == string::npos) return "";
+		if (found == string::npos)
+			return "";
 		bool at_start = (found == 0 || text[found - 1] == '\n');
 		if (at_start) {
 			size_t val_start = found + mlen;
@@ -542,11 +554,13 @@ static string ExtractCoordCommand(const string &text, const char *marker, bool m
 				val_end = text.size();
 			} else {
 				val_end = text.find('\n', val_start);
-				if (val_end == string::npos) val_end = text.size();
-				if (val_end - val_start > MAX_LINE) val_end = val_start + MAX_LINE;
+				if (val_end == string::npos)
+					val_end = text.size();
+				if (val_end - val_start > MAX_LINE)
+					val_end = val_start + MAX_LINE;
 			}
-			while (val_end > val_start && (text[val_end - 1] == ' ' || text[val_end - 1] == '\r' ||
-			                               text[val_end - 1] == '\n'))
+			while (val_end > val_start &&
+			       (text[val_end - 1] == ' ' || text[val_end - 1] == '\r' || text[val_end - 1] == '\n'))
 				val_end--;
 			return text.substr(val_start, val_end - val_start);
 		}
@@ -555,22 +569,23 @@ static string ExtractCoordCommand(const string &text, const char *marker, bool m
 	return "";
 }
 
-
 // Run Claude subprocess as the COORDINATOR; dispatch DELEGATE_SQL to worker_fn.
 // worker_fn receives the delegate question (with schema pre-injected).
 // Returns the final answer (FINAL_ANSWER: content, or last natural-language response).
-static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &shell_state,
-                                       const WorkerFn &worker_fn,
-                                       const string &user_input, idx_t term_width,
-                                       int32_t max_rounds,
+static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &shell_state, const WorkerFn &worker_fn,
+                                       const string &user_input, idx_t term_width, int32_t max_rounds,
                                        InteractionStats &stats) {
 	FILE *to_claude = nullptr, *from_claude = nullptr;
 	pid_t pid = SpawnModelsProcess(COORDINATOR_SYSTEM_PROMPT, &to_claude, &from_claude);
 	if (pid < 0 || !to_claude || !from_claude) {
-		shell_state.ShellPrintError(StringUtil::Format("Error: failed to spawn coordinator subprocess: %s\n", strerror(errno)));
-		if (to_claude)   fclose(to_claude);
-		if (from_claude) fclose(from_claude);
-		if (pid > 0) waitpid(pid, nullptr, 0);
+		shell_state.ShellPrintError(
+		    StringUtil::Format("Error: failed to spawn coordinator subprocess: %s\n", strerror(errno)));
+		if (to_claude)
+			fclose(to_claude);
+		if (from_claude)
+			fclose(from_claude);
+		if (pid > 0)
+			waitpid(pid, nullptr, 0);
 		return "";
 	}
 
@@ -589,16 +604,19 @@ static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &s
 	string db_context;
 	{
 		auto ctx_qr = ExecuteQuery(*context.db, "FROM duckdb_summary('context')");
-		if (!ctx_qr.is_error) db_context = "[Database context]\n" + ctx_qr.text + "\n";
-		if (!schema_ddl.empty()) db_context += "[Database schema]\n" + schema_ddl + "\n";
+		if (!ctx_qr.is_error)
+			db_context = "[Database context]\n" + ctx_qr.text + "\n";
+		if (!schema_ddl.empty())
+			db_context += "[Database schema]\n" + schema_ddl + "\n";
 	}
 	string init_question = user_input;
 	if (!db_context.empty()) {
 		init_question = db_context + "\nUser question: " + user_input;
 	}
 
-	string init_msg = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":" +
-	                  ModelsJsonEscapeString(init_question) + "}}\n";
+	string init_msg =
+	    "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":" + ModelsJsonEscapeString(init_question) +
+	    "}}\n";
 	DUCKDB_LOG(context, ModelsLogType, "out", init_msg);
 	fputs(init_msg.c_str(), to_claude);
 	fflush(to_claude);
@@ -610,39 +628,43 @@ static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &s
 		bool got = false;
 		while ((c = fgetc(fp)) != EOF) {
 			got = true;
-			if (c == '\n') break;
+			if (c == '\n')
+				break;
 			line += (char)c;
 		}
-		if (!line.empty() && line.back() == '\r') line.pop_back();
+		if (!line.empty() && line.back() == '\r')
+			line.pop_back();
 		return got;
 	};
 
-	int    rounds     = 0;
-	bool   done       = false;
+	int rounds = 0;
+	bool done = false;
 	string final_response;
 
 	std::unordered_set<string> seen_failed_delegations;
 
 	string coord_line;
 	while (!done && read_line_coord(from_claude, coord_line)) {
-		if (coord_line.empty()) continue;
+		if (coord_line.empty())
+			continue;
 		const char *line_ptr = coord_line.c_str();
-		idx_t       len      = coord_line.size();
+		idx_t len = coord_line.size();
 
 		DUCKDB_LOG(context, ModelsLogType, "in", coord_line);
 
 		yyjson_doc *doc = yyjson_read(line_ptr, len, 0);
-		if (!doc) continue;
+		if (!doc)
+			continue;
 		yyjson_val *root = yyjson_doc_get_root(doc);
 
-		yyjson_val *type_v    = yyjson_obj_get(root, "type");
+		yyjson_val *type_v = yyjson_obj_get(root, "type");
 		yyjson_val *subtype_v = yyjson_obj_get(root, "subtype");
-		string event_type = (type_v    && yyjson_is_str(type_v))    ? yyjson_get_str(type_v)    : "";
-		string event_sub  = (subtype_v && yyjson_is_str(subtype_v)) ? yyjson_get_str(subtype_v) : "";
+		string event_type = (type_v && yyjson_is_str(type_v)) ? yyjson_get_str(type_v) : "";
+		string event_sub = (subtype_v && yyjson_is_str(subtype_v)) ? yyjson_get_str(subtype_v) : "";
 
 		if (event_type == "assistant") {
 			// Show thinking if present
-			yyjson_val *msg_v     = yyjson_obj_get(root, "message");
+			yyjson_val *msg_v = yyjson_obj_get(root, "message");
 			yyjson_val *content_v = msg_v ? yyjson_obj_get(msg_v, "content") : nullptr;
 			if (content_v && yyjson_is_arr(content_v)) {
 				for (idx_t i = 0; i < yyjson_arr_size(content_v); i++) {
@@ -653,10 +675,12 @@ static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &s
 						if (thinking_v && yyjson_is_str(thinking_v)) {
 							string t = yyjson_get_str(thinking_v);
 							auto nl = t.find('\n');
-							if (nl != string::npos) t = t.substr(0, nl);
+							if (nl != string::npos)
+								t = t.substr(0, nl);
 							static constexpr idx_t PREFIX_LEN = 11;
 							idx_t max_text = term_width > PREFIX_LEN + 3 ? term_width - PREFIX_LEN - 3 : 0;
-							if (max_text > 0 && t.size() > max_text) t = t.substr(0, max_text) + "...";
+							if (max_text > 0 && t.size() > max_text)
+								t = t.substr(0, max_text) + "...";
 							shell_state.ShellPrintError("\r\033[K[thinking] " + t);
 						}
 					}
@@ -676,7 +700,7 @@ static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &s
 				string response = (result_v && yyjson_is_str(result_v)) ? yyjson_get_str(result_v) : "";
 
 				// Check for coordinator commands.
-				string final_ans  = ExtractCoordCommand(response, "FINAL_ANSWER:", true);
+				string final_ans = ExtractCoordCommand(response, "FINAL_ANSWER:", true);
 				string delegate_q = ExtractCoordCommand(response, "DELEGATE_SQL:");
 				string direct_sql = ExtractCoordCommand(response, "ASK_SQL:");
 
@@ -710,7 +734,8 @@ static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &s
 						}
 						string feedback = "[Worker answered \"" + delegate_q + "\"]\n" + worker_ans;
 						string hints = MatchErrorHints(worker_ans);
-						if (!hints.empty()) feedback += "\n[Error hints]\n" + hints;
+						if (!hints.empty())
+							feedback += "\n[Error hints]\n" + hints;
 						string msg = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":" +
 						             ModelsJsonEscapeString(feedback) + "}}\n";
 						DUCKDB_LOG(context, ModelsLogType, "out", msg);
@@ -726,12 +751,15 @@ static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &s
 						// TODO: log sql_exec + sql_result entries here for testability via duckdb_logs_parsed('Models')
 						auto qr = ExecuteQuery(*context.db, direct_sql);
 						stats.sql_total++;
-						if (qr.is_error) stats.sql_error++; else stats.sql_ok++;
-						feedback = qr.is_error
-						    ? ("SQL_ERROR: The query below failed. Do NOT retry the same query.\n"
-						       "Diagnose the error, fix the SQL, and issue a corrected SQL_QUERY.\n"
-						       "Failed SQL:\n" + direct_sql + "\nError message:\n" + qr.text)
-						    : ("SQL_RESULT:\n" + qr.text);
+						if (qr.is_error)
+							stats.sql_error++;
+						else
+							stats.sql_ok++;
+						feedback = qr.is_error ? ("SQL_ERROR: The query below failed. Do NOT retry the same query.\n"
+						                          "Diagnose the error, fix the SQL, and issue a corrected SQL_QUERY.\n"
+						                          "Failed SQL:\n" +
+						                          direct_sql + "\nError message:\n" + qr.text)
+						                       : ("SQL_RESULT:\n" + qr.text);
 					} else {
 						feedback = "[SQL rejected — only SELECT/FROM/... allowed]";
 					}
@@ -766,7 +794,8 @@ static string RunModelsCoordinatorLoop(ClientContext &context, BaseShellState &s
 		if (code == 127)
 			shell_state.ShellPrintError("Error: 'claude' CLI not found. Install Claude Code to use this feature.\n");
 	} else if (WIFSIGNALED(status)) {
-		DUCKDB_LOG(context, ModelsLogType, "exit", StringUtil::Format("coordinator pid=%d signal=%d", (int)pid, WTERMSIG(status)));
+		DUCKDB_LOG(context, ModelsLogType, "exit",
+		           StringUtil::Format("coordinator pid=%d signal=%d", (int)pid, WTERMSIG(status)));
 	}
 	return final_response;
 }
@@ -794,8 +823,9 @@ struct ModelsInteractionsGlobalState : public GlobalTableFunctionState {
 
 static unique_ptr<FunctionData> ModelsInteractionsBind(ClientContext & /*context*/, TableFunctionBindInput &input,
                                                        vector<LogicalType> &return_types, vector<string> &names) {
-	return_types = {LogicalType::BIGINT, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR};
-	names        = {"id", "question", "answer", "total_time", "sql_expert_model", "coordinator_model", "stats"};
+	return_types = {LogicalType::BIGINT,  LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::DOUBLE,
+	                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR};
+	names = {"id", "question", "answer", "total_time", "sql_expert_model", "coordinator_model", "stats"};
 
 	auto &fn_info = input.info->Cast<ModelsTableFunctionInfo>();
 	auto bind_data = make_uniq<ModelsInteractionsBindData>();
@@ -810,7 +840,7 @@ static unique_ptr<GlobalTableFunctionState> ModelsInteractionsInitGlobal(ClientC
 
 static void ModelsInteractionsScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &bind_data = data_p.bind_data->Cast<ModelsInteractionsBindData>();
-	auto &gstate    = data_p.global_state->Cast<ModelsInteractionsGlobalState>();
+	auto &gstate = data_p.global_state->Cast<ModelsInteractionsGlobalState>();
 
 	idx_t count = 0;
 	while (gstate.row < bind_data.snapshot.size() && count < STANDARD_VECTOR_SIZE) {
@@ -818,7 +848,7 @@ static void ModelsInteractionsScan(ClientContext & /*context*/, TableFunctionInp
 		output.data[0].SetValue(count, Value::BIGINT(entry.id));
 		output.data[1].SetValue(count, Value(entry.question));
 		output.data[2].SetValue(count, entry.pending ? Value(LogicalType::VARCHAR) : Value(entry.answer));
-		output.data[3].SetValue(count, entry.pending ? Value(LogicalType::DOUBLE)  : Value(entry.elapsed_seconds));
+		output.data[3].SetValue(count, entry.pending ? Value(LogicalType::DOUBLE) : Value(entry.elapsed_seconds));
 		output.data[4].SetValue(count, Value(entry.sql_expert_model));
 		output.data[5].SetValue(count, Value(entry.coordinator_model));
 		output.data[6].SetValue(count, Value(entry.stats));
@@ -845,10 +875,11 @@ static unique_ptr<TableRef> ModelsInteractionsReplacementScan(ClientContext &con
 		return nullptr;
 	}
 	auto &scan_data = data->Cast<ModelsReplacementScanData>();
-	auto &history   = scan_data.state->history;
+	auto &history = scan_data.state->history;
 
-	vector<LogicalType> types = {LogicalType::BIGINT, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR};
-	vector<string>      names = {"id", "question", "answer", "total_time", "sql_expert_model", "coordinator_model", "stats"};
+	vector<LogicalType> types = {LogicalType::BIGINT,  LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::DOUBLE,
+	                             LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR};
+	vector<string> names = {"id", "question", "answer", "total_time", "sql_expert_model", "coordinator_model", "stats"};
 	auto collection = make_uniq<ColumnDataCollection>(context, types);
 
 	if (!history.empty()) {
@@ -859,7 +890,7 @@ static unique_ptr<TableRef> ModelsInteractionsReplacementScan(ClientContext &con
 			chunk.data[0].SetValue(row, Value::BIGINT(entry.id));
 			chunk.data[1].SetValue(row, Value(entry.question));
 			chunk.data[2].SetValue(row, entry.pending ? Value(LogicalType::VARCHAR) : Value(entry.answer));
-			chunk.data[3].SetValue(row, entry.pending ? Value(LogicalType::DOUBLE)  : Value(entry.elapsed_seconds));
+			chunk.data[3].SetValue(row, entry.pending ? Value(LogicalType::DOUBLE) : Value(entry.elapsed_seconds));
 			chunk.data[4].SetValue(row, Value(entry.sql_expert_model));
 			chunk.data[5].SetValue(row, Value(entry.coordinator_model));
 			chunk.data[6].SetValue(row, Value(entry.stats));
@@ -887,41 +918,28 @@ static unique_ptr<TableRef> ModelsInteractionsReplacementScan(ClientContext &con
 struct ModelCatalogEntry {
 	const char *name;
 	const char *description;
-	double      size_gb;
+	double size_gb;
 	const char *url;
 };
 
 // Catalog of known models. Used by both KNOWN_MODELS lookup and FROM llama_models.
 static const ModelCatalogEntry MODEL_CATALOG[] = {
     // General-purpose instruct models (small/fast)
-    {"qwen2.5-0.5b",
-     "Qwen 2.5 0.5B Instruct — tiny, fast, general purpose",
-     0.4,
+    {"qwen2.5-0.5b", "Qwen 2.5 0.5B Instruct — tiny, fast, general purpose", 0.4,
      "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf"},
-    {"qwen2.5-1.5b",
-     "Qwen 2.5 1.5B Instruct — small, general purpose",
-     1.0,
+    {"qwen2.5-1.5b", "Qwen 2.5 1.5B Instruct — small, general purpose", 1.0,
      "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"},
-    {"qwen2.5-3b",
-     "Qwen 2.5 3B Instruct — good balance of size and quality",
-     2.0,
+    {"qwen2.5-3b", "Qwen 2.5 3B Instruct — good balance of size and quality", 2.0,
      "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf"},
-    {"smollm2-1.7b",
-     "SmolLM2 1.7B Instruct — compact, efficient general model",
-     1.1,
+    {"smollm2-1.7b", "SmolLM2 1.7B Instruct — compact, efficient general model", 1.1,
      "https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q4_K_M.gguf"},
     // SQL-specialised models (recommended for .claude)
-    {"sqlcoder-7b-2",
-     "SQLCoder 7B-2 — Defog SQL specialist, Q4_K_M (~4GB), fast on Apple Silicon (RECOMMENDED)",
-     4.1,
+    {"sqlcoder-7b-2", "SQLCoder 7B-2 — Defog SQL specialist, Q4_K_M (~4GB), fast on Apple Silicon (RECOMMENDED)", 4.1,
      "https://huggingface.co/MaziyarPanahi/sqlcoder-7b-2-GGUF/resolve/main/sqlcoder-7b-2.Q4_K_M.gguf"},
-    {"sqlcoder-7b",
-     "SQLCoder 7B — Defog text-to-SQL model, Q4_K_M (~4.4GB)",
-     4.4,
+    {"sqlcoder-7b", "SQLCoder 7B — Defog text-to-SQL model, Q4_K_M (~4.4GB)", 4.4,
      "https://huggingface.co/TheBloke/sqlcoder-7B-GGUF/resolve/main/sqlcoder-7b.Q4_K_M.gguf"},
     {"duckdb-nsql-7b",
-     "DuckDB-NSQL 7B — fine-tuned on 200k DuckDB SQL pairs by MotherDuck (q8_0, ~7.5GB — needs 8GB+ free RAM)",
-     7.5,
+     "DuckDB-NSQL 7B — fine-tuned on 200k DuckDB SQL pairs by MotherDuck (q8_0, ~7.5GB — needs 8GB+ free RAM)", 7.5,
      "https://huggingface.co/motherduckdb/DuckDB-NSQL-7B-v0.1-GGUF/resolve/main/DuckDB-NSQL-7B-v0.1-q8_0.gguf"},
 };
 
@@ -951,11 +969,15 @@ static string GetModelsSetupPath(FileSystem &fs) {
 // Read entire file into a string; returns "" if file doesn't exist.
 static string ReadFileContent(const string &path) {
 	FILE *f = fopen(path.c_str(), "r");
-	if (!f) return "";
+	if (!f)
+		return "";
 	fseek(f, 0, SEEK_END);
 	long sz = ftell(f);
 	fseek(f, 0, SEEK_SET);
-	if (sz <= 0) { fclose(f); return ""; }
+	if (sz <= 0) {
+		fclose(f);
+		return "";
+	}
 	string content(static_cast<size_t>(sz), '\0');
 	fread(&content[0], 1, static_cast<size_t>(sz), f);
 	fclose(f);
@@ -968,7 +990,8 @@ static string StripSQLComments(const string &sql) {
 	size_t i = 0;
 	while (i < sql.size()) {
 		size_t nl = sql.find('\n', i);
-		if (nl == string::npos) nl = sql.size();
+		if (nl == string::npos)
+			nl = sql.size();
 		string line = sql.substr(i, nl - i);
 		if (!(line.size() >= 2 && line[0] == '-' && line[1] == '-')) {
 			result += line + "\n";
@@ -983,7 +1006,8 @@ static string StripSQLComments(const string &sql) {
 //   - "~/" prefix                             → expanded via fs.GetHomeDirectory()
 //   - Anything else                           → used as-is
 static string ResolveModelPath(const string &setting, FileSystem &fs) {
-	if (setting.empty()) return setting;
+	if (setting.empty())
+		return setting;
 
 	// Short name from registry?
 	auto it = KNOWN_MODELS.find(setting);
@@ -1003,7 +1027,8 @@ static string ResolveModelPath(const string &setting, FileSystem &fs) {
 
 // Resolve 'auto' worker style from model path (checks for known SQL-only model names).
 static string ResolveWorkerStyle(const string &style, const string &model_path) {
-	if (style != "auto") return style;
+	if (style != "auto")
+		return style;
 	string lower = StringUtil::Lower(model_path);
 	if (lower.find("sqlcoder") != string::npos || lower.find("nsql") != string::npos) {
 		return "sqlcoder";
@@ -1014,9 +1039,11 @@ static string ResolveWorkerStyle(const string &style, const string &model_path) 
 // Recursively create directories (like mkdir -p).
 static bool MakeDirectories(const string &path) {
 	struct stat st;
-	if (stat(path.c_str(), &st) == 0) return S_ISDIR(st.st_mode);
+	if (stat(path.c_str(), &st) == 0)
+		return S_ISDIR(st.st_mode);
 	auto parent = path.substr(0, path.rfind('/'));
-	if (!parent.empty() && parent != path && !MakeDirectories(parent)) return false;
+	if (!parent.empty() && parent != path && !MakeDirectories(parent))
+		return false;
 	return mkdir(path.c_str(), 0755) == 0 || errno == EEXIST;
 }
 
@@ -1027,8 +1054,7 @@ static bool MakeDirectories(const string &path) {
 
 #ifdef MODELS_SHELL_EXT
 static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellState &shell_state,
-                                             const vector<string> &args,
-                                             optional_ptr<ShellCommandExtensionInfo> info) {
+                                             const vector<string> &args, optional_ptr<ShellCommandExtensionInfo> info) {
 	if (args.size() < 2) {
 		shell_state.ShellPrint("Usage: .claude <question>\n");
 		shell_state.ShellPrint("       Ask a question about your DuckDB database.\n");
@@ -1038,7 +1064,8 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 
 	string question;
 	for (idx_t i = 1; i < args.size(); i++) {
-		if (i > 1) question += ' ';
+		if (i > 1)
+			question += ' ';
 		question += args[i];
 	}
 
@@ -1052,36 +1079,38 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 	Connection settings_conn(db);
 	auto &ctx = *settings_conn.context;
 	auto read_str = [&](const string &key, const string &def = "") -> string {
-		Value v; return ctx.TryGetCurrentSetting(key, v) ? v.ToString() : def;
+		Value v;
+		return ctx.TryGetCurrentSetting(key, v) ? v.ToString() : def;
 	};
 	auto read_int = [&](const string &key, int32_t def) -> int32_t {
-		Value v; return ctx.TryGetCurrentSetting(key, v) ? v.GetValue<int32_t>() : def;
+		Value v;
+		return ctx.TryGetCurrentSetting(key, v) ? v.GetValue<int32_t>() : def;
 	};
 	auto read_dbl = [&](const string &key, double def) -> double {
-		Value v; return ctx.TryGetCurrentSetting(key, v) ? v.GetValue<double>() : def;
+		Value v;
+		return ctx.TryGetCurrentSetting(key, v) ? v.GetValue<double>() : def;
 	};
 
 	string sql_expert = read_str("sql_expert_model");
 
 	if (sql_expert.empty()) {
-		shell_state.ShellPrintError(
-		    "Error: no model configured.\n"
-		    "Run one of:\n"
-		    "  CALL setup_models();              -- local llama models (privacy-first)\n"
-		    "  CALL setup_models(claude:=true);  -- Claude CLI (requires claude installed)\n");
+		shell_state.ShellPrintError("Error: no model configured.\n"
+		                            "Run one of:\n"
+		                            "  CALL setup_models();              -- local llama models (privacy-first)\n"
+		                            "  CALL setup_models(claude:=true);  -- Claude CLI (requires claude installed)\n");
 		return ShellCommandResult::SUCCESS;
 	}
 
 	if (sql_expert != "claude") {
-		auto   &fs         = FileSystem::GetFileSystem(ctx);
-		string  model_path = ResolveModelPath(sql_expert, fs);
-		int32_t n_ctx      = read_int("llama_context_size", 8192);
-		int32_t n_gpu      = read_int("llama_gpu_layers",   -1);
-		string  coord_raw  = read_str("coordinator_model");
-		string  coord_path = coord_raw.empty() || coord_raw == "claude" ? "" : ResolveModelPath(coord_raw, fs);
-		double  time_budget  = read_dbl("coordinator_time_budget", 60.0);
-		int32_t coord_rounds = read_int("coordinator_max_rounds",   12);
-		string  worker_style = ResolveWorkerStyle(read_str("sql_expert_model_style", "auto"), model_path);
+		auto &fs = FileSystem::GetFileSystem(ctx);
+		string model_path = ResolveModelPath(sql_expert, fs);
+		int32_t n_ctx = read_int("llama_context_size", 8192);
+		int32_t n_gpu = read_int("llama_gpu_layers", -1);
+		string coord_raw = read_str("coordinator_model");
+		string coord_path = coord_raw.empty() || coord_raw == "claude" ? "" : ResolveModelPath(coord_raw, fs);
+		double time_budget = read_dbl("coordinator_time_budget", 60.0);
+		int32_t coord_rounds = read_int("coordinator_max_rounds", 12);
+		string worker_style = ResolveWorkerStyle(read_str("sql_expert_model_style", "auto"), model_path);
 
 		if (!state.llama.IsLoaded() || model_path != state.llama_model_path) {
 			shell_state.ShellPrint(StringUtil::Format("Loading worker model '%s'...\n", model_path));
@@ -1089,8 +1118,8 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 			if (!state.llama.Load(model_path, n_ctx, n_gpu, shell_state)) {
 				return ShellCommandResult::SUCCESS;
 			}
-			state.llama_model_path   = model_path;
-			state.llama_n_ctx        = n_ctx;
+			state.llama_model_path = model_path;
+			state.llama_n_ctx = n_ctx;
 			state.llama_n_gpu_layers = n_gpu;
 		}
 
@@ -1100,7 +1129,8 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 			shell_state.ShellPrint(StringUtil::Format("Loading coordinator model '%s'...\n", coord_path));
 			state.coordinator_llama = LlamaState();
 			if (!state.coordinator_llama.Load(coord_path, n_ctx, n_gpu, shell_state)) {
-				shell_state.ShellPrintError("Warning: coordinator model failed to load; running without coordinator.\n");
+				shell_state.ShellPrintError(
+				    "Warning: coordinator model failed to load; running without coordinator.\n");
 				coord_path.clear();
 			} else {
 				state.coordinator_model_path = coord_path;
@@ -1123,13 +1153,12 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 				                    worker_style == "sqlcoder" ? SQLCODER_SYSTEM_PROMPT : "",
 				                    worker_style == "sqlcoder");
 			};
-			answer = RunModelsCoordinatorLoop(*conn.context, shell_state, worker_fn,
-			                                 question, width, coord_rounds, istats);
+			answer =
+			    RunModelsCoordinatorLoop(*conn.context, shell_state, worker_fn, question, width, coord_rounds, istats);
 		} else if (!coord_path.empty() && state.coordinator_llama.IsLoaded()) {
 			// Llama coordinator + llama worker
-			answer = RunCoordinatorLoop(*conn.context, shell_state,
-			                           state.coordinator_llama, state.llama,
-			                           question, width, time_budget, coord_rounds, worker_style);
+			answer = RunCoordinatorLoop(*conn.context, shell_state, state.coordinator_llama, state.llama, question,
+			                            width, time_budget, coord_rounds, worker_style);
 		} else {
 			// No coordinator — direct llama loop
 			answer = RunLlamaLoop(*conn.context, shell_state, state.llama, question, width);
@@ -1137,10 +1166,10 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 		double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
 		auto &entry = state.history.back();
-		entry.answer          = answer;
+		entry.answer = answer;
 		entry.elapsed_seconds = elapsed;
-		entry.pending         = false;
-		entry.stats           = istats.ToJSON();
+		entry.pending = false;
+		entry.stats = istats.ToJSON();
 
 		// RunLlamaLoop already streamed tokens via ShellPrint — no re-print needed.
 		shell_state.ShellPrint("\n");
@@ -1167,9 +1196,8 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 			WorkerFn worker_fn = [&](const string &q) -> string {
 				return RunModelsSubprocessLoop(*conn.context, shell_state, q, width, istats);
 			};
-			answer = RunModelsCoordinatorLoop(*conn.context, shell_state, worker_fn,
-			                                 question, width,
-			                                 read_int("coordinator_max_rounds", 12), istats);
+			answer = RunModelsCoordinatorLoop(*conn.context, shell_state, worker_fn, question, width,
+			                                  read_int("coordinator_max_rounds", 12), istats);
 			goto record_entry;
 		}
 	}
@@ -1178,18 +1206,19 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 		string coord_raw = read_str("coordinator_model");
 		if (!coord_raw.empty() && coord_raw != "claude") {
 			// Llama coordinator + Claude worker
-			auto   &fs         = FileSystem::GetFileSystem(ctx);
-			string  coord_path = ResolveModelPath(coord_raw, fs);
-			int32_t n_ctx      = read_int("llama_context_size", 8192);
-			int32_t n_gpu      = read_int("llama_gpu_layers",   -1);
-			double  time_budget  = read_dbl("coordinator_time_budget", 60.0);
-			int32_t coord_rounds = read_int("coordinator_max_rounds",   12);
+			auto &fs = FileSystem::GetFileSystem(ctx);
+			string coord_path = ResolveModelPath(coord_raw, fs);
+			int32_t n_ctx = read_int("llama_context_size", 8192);
+			int32_t n_gpu = read_int("llama_gpu_layers", -1);
+			double time_budget = read_dbl("coordinator_time_budget", 60.0);
+			int32_t coord_rounds = read_int("coordinator_max_rounds", 12);
 
 			if (!state.coordinator_llama.IsLoaded() || coord_path != state.coordinator_model_path) {
 				shell_state.ShellPrint(StringUtil::Format("Loading coordinator model '%s'...\n", coord_path));
 				state.coordinator_llama = LlamaState();
 				if (!state.coordinator_llama.Load(coord_path, n_ctx, n_gpu, shell_state)) {
-					shell_state.ShellPrintError("Warning: coordinator model failed to load; falling back to Claude direct.\n");
+					shell_state.ShellPrintError(
+					    "Warning: coordinator model failed to load; falling back to Claude direct.\n");
 					coord_path.clear();
 				} else {
 					state.coordinator_model_path = coord_path;
@@ -1201,27 +1230,23 @@ static ShellCommandResult ModelsShellCommand(DatabaseInstance &db, BaseShellStat
 				WorkerFn worker_fn = [&](const string &q) -> string {
 					return RunModelsSubprocessLoop(*conn.context, shell_state, q, width, istats);
 				};
-				answer = RunCoordinatorLoopWithWorker(*conn.context, shell_state,
-				                                     state.coordinator_llama, worker_fn,
-				                                     question, width,
-				                                     time_budget, coord_rounds);
+				answer = RunCoordinatorLoopWithWorker(*conn.context, shell_state, state.coordinator_llama, worker_fn,
+				                                      question, width, time_budget, coord_rounds);
 				goto record_entry;
 			}
 		}
 	}
 
-	answer = RunModelsSubprocessLoop(*conn.context, shell_state, question,
-	                                 shell_state.GetTerminalWidth(), istats);
+	answer = RunModelsSubprocessLoop(*conn.context, shell_state, question, shell_state.GetTerminalWidth(), istats);
 
-record_entry:
-	{
-		double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-		auto &entry = state.history.back();
-		entry.answer          = answer;
-		entry.elapsed_seconds = elapsed;
-		entry.pending         = false;
-		entry.stats           = istats.ToJSON();
-	}
+record_entry: {
+	double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+	auto &entry = state.history.back();
+	entry.answer = answer;
+	entry.elapsed_seconds = elapsed;
+	entry.pending = false;
+	entry.stats = istats.ToJSON();
+}
 
 	if (!answer.empty()) {
 		shell_state.ShellPrint("\n" + answer + "\n");
@@ -1246,7 +1271,6 @@ record_entry:
 //   CALL llama_download_model('https://huggingface.co/.../model.gguf');
 // ---------------------------------------------------------------------------
 
-
 struct DownloadModelBindData : public FunctionData {
 	string url;
 	string model_name; // filename (e.g. "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
@@ -1262,7 +1286,7 @@ struct DownloadModelBindData : public FunctionData {
 
 struct DownloadModelGlobalState : public GlobalTableFunctionState {
 	int64_t bytes_downloaded = 0;
-	bool    returned         = false;
+	bool returned = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -1272,19 +1296,18 @@ struct DownloadModelGlobalState : public GlobalTableFunctionState {
 // One BaseExecutorTask per 100 MB chunk. Uses HTTP Range header and pwrite()
 // to write the chunk at the correct offset in the pre-allocated output file.
 struct ChunkDownloadTask : public BaseExecutorTask {
-	DatabaseInstance      &db;
-	HTTPUtil              &http_util;
-	const string          &url;
-	int64_t                range_start;
-	int64_t                range_end;
-	int                    fd;
-	std::atomic<int64_t>  &total_downloaded;
+	DatabaseInstance &db;
+	HTTPUtil &http_util;
+	const string &url;
+	int64_t range_start;
+	int64_t range_end;
+	int fd;
+	std::atomic<int64_t> &total_downloaded;
 
-	ChunkDownloadTask(TaskExecutor &executor, DatabaseInstance &db_p, HTTPUtil &http_util_p,
-	                  const string &url_p, int64_t rs, int64_t re,
-	                  int fd_p, std::atomic<int64_t> &downloaded_p)
-	    : BaseExecutorTask(executor), db(db_p), http_util(http_util_p), url(url_p),
-	      range_start(rs), range_end(re), fd(fd_p), total_downloaded(downloaded_p) {
+	ChunkDownloadTask(TaskExecutor &executor, DatabaseInstance &db_p, HTTPUtil &http_util_p, const string &url_p,
+	                  int64_t rs, int64_t re, int fd_p, std::atomic<int64_t> &downloaded_p)
+	    : BaseExecutorTask(executor), db(db_p), http_util(http_util_p), url(url_p), range_start(rs), range_end(re),
+	      fd(fd_p), total_downloaded(downloaded_p) {
 	}
 
 	void ExecuteTask() override {
@@ -1300,7 +1323,9 @@ struct ChunkDownloadTask : public BaseExecutorTask {
 			total_downloaded.fetch_add(static_cast<int64_t>(len), std::memory_order_relaxed);
 			return true;
 		};
-		auto response_h = [](const HTTPResponse &) -> bool { return true; };
+		auto response_h = [](const HTTPResponse &) -> bool {
+			return true;
+		};
 
 		GetRequestInfo req(url, headers, *params, response_h, content_h);
 		auto resp = http_util.Request(req);
@@ -1310,17 +1335,19 @@ struct ChunkDownloadTask : public BaseExecutorTask {
 		}
 	}
 
-	string TaskType() const override { return "ModelChunkDownload"; }
+	string TaskType() const override {
+		return "ModelChunkDownload";
+	}
 };
 
 static unique_ptr<FunctionData> DownloadModelBind(ClientContext &context, TableFunctionBindInput &input,
-                                                   vector<LogicalType> &return_types, vector<string> &names) {
+                                                  vector<LogicalType> &return_types, vector<string> &names) {
 	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT};
-	names        = {"model_name", "local_path", "bytes_downloaded"};
+	names = {"model_name", "local_path", "bytes_downloaded"};
 
-	auto &fs    = FileSystem::GetFileSystem(context);
+	auto &fs = FileSystem::GetFileSystem(context);
 	auto result = make_uniq<DownloadModelBindData>();
-	string arg  = input.inputs[0].GetValue<string>();
+	string arg = input.inputs[0].GetValue<string>();
 
 	if (StringUtil::StartsWith(arg, "http://") || StringUtil::StartsWith(arg, "https://")) {
 		result->url = arg;
@@ -1328,9 +1355,9 @@ static unique_ptr<FunctionData> DownloadModelBind(ClientContext &context, TableF
 		auto it = KNOWN_MODELS.find(arg);
 		if (it == KNOWN_MODELS.end()) {
 			string known;
-			for (auto &kv : KNOWN_MODELS) known += " " + kv.first;
-			throw InvalidInputException(
-			    "Unknown model name '%s'. Use a full HTTPS URL or one of:%s", arg, known);
+			for (auto &kv : KNOWN_MODELS)
+				known += " " + kv.first;
+			throw InvalidInputException("Unknown model name '%s'. Use a full HTTPS URL or one of:%s", arg, known);
 		}
 		result->url = it->second;
 	}
@@ -1342,11 +1369,11 @@ static unique_ptr<FunctionData> DownloadModelBind(ClientContext &context, TableF
 }
 
 static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContext &context,
-                                                                      TableFunctionInitInput &input) {
-	auto &bind  = input.bind_data->Cast<DownloadModelBindData>();
-	auto  state = make_uniq<DownloadModelGlobalState>();
+                                                                    TableFunctionInitInput &input) {
+	auto &bind = input.bind_data->Cast<DownloadModelBindData>();
+	auto state = make_uniq<DownloadModelGlobalState>();
 
-	auto &fs          = FileSystem::GetFileSystem(context);
+	auto &fs = FileSystem::GetFileSystem(context);
 	string models_dir = GetModelsModelsDir(fs);
 	if (!MakeDirectories(models_dir)) {
 		throw IOException("Failed to create models directory: %s", models_dir);
@@ -1364,15 +1391,15 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 		throw IOException("httpfs extension is required for model download but could not be loaded");
 	}
 
-	auto &http_util    = HTTPUtil::Get(*context.db);
-	auto &db           = *context.db;
+	auto &http_util = HTTPUtil::Get(*context.db);
+	auto &db = *context.db;
 	HTTPHeaders base_headers(db);
 
 	// ---------------------------------------------------------------------------
 	// HEAD: get file size and check if server supports range requests.
 	// ---------------------------------------------------------------------------
 	int64_t total_size = -1;
-	bool    range_ok   = false;
+	bool range_ok = false;
 	{
 		auto hparams = http_util.InitializeParameters(db, bind.url);
 		hparams->timeout = 60;
@@ -1381,8 +1408,10 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 		auto head_resp = http_util.Request(head_req);
 		if (head_resp && head_resp->Success()) {
 			if (head_resp->HasHeader("Content-Length")) {
-				try { total_size = std::stoll(head_resp->GetHeaderValue("Content-Length")); }
-				catch (...) {}
+				try {
+					total_size = std::stoll(head_resp->GetHeaderValue("Content-Length"));
+				} catch (...) {
+				}
 			}
 			if (head_resp->HasHeader("Accept-Ranges")) {
 				range_ok = (head_resp->GetHeaderValue("Accept-Ranges") == "bytes");
@@ -1398,8 +1427,8 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 
 	if (range_ok && total_size > 0) {
 		int n_chunks = static_cast<int>((total_size + CHUNK_SIZE - 1) / CHUNK_SIZE);
-		fprintf(stderr, "Downloading %s (%.1f MB, %d chunks of 100 MB)...\n",
-		        bind.model_name.c_str(), total_size / 1e6, n_chunks);
+		fprintf(stderr, "Downloading %s (%.1f MB, %d chunks of 100 MB)...\n", bind.model_name.c_str(), total_size / 1e6,
+		        n_chunks);
 
 		// Pre-allocate the output file so pwrite() can write at arbitrary offsets.
 		int fd = ::open(bind.local_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -1418,8 +1447,8 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 		for (int i = 0; i < n_chunks; i++) {
 			int64_t rs = static_cast<int64_t>(i) * CHUNK_SIZE;
 			int64_t re = std::min(rs + CHUNK_SIZE - 1, total_size - 1);
-			executor.ScheduleTask(make_uniq<ChunkDownloadTask>(
-			    executor, db, http_util, bind.url, rs, re, fd, total_downloaded));
+			executor.ScheduleTask(
+			    make_uniq<ChunkDownloadTask>(executor, db, http_util, bind.url, rs, re, fd, total_downloaded));
 		}
 
 		// Progress display in a lightweight background thread while WorkOnTasks() runs.
@@ -1427,8 +1456,8 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 		std::thread progress_thread([&]() {
 			while (!progress_done.load(std::memory_order_relaxed)) {
 				int64_t done = total_downloaded.load(std::memory_order_relaxed);
-				fprintf(stderr, "\r  %.1f / %.1f MB (%.0f%%)   ",
-				        done / 1e6, total_size / 1e6, 100.0 * done / total_size);
+				fprintf(stderr, "\r  %.1f / %.1f MB (%.0f%%)   ", done / 1e6, total_size / 1e6,
+				        100.0 * done / total_size);
 				fflush(stderr);
 				std::this_thread::sleep_for(std::chrono::milliseconds(250));
 			}
@@ -1467,7 +1496,10 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 		int64_t downloaded = 0;
 		auto response_handler = [&total_size](const HTTPResponse &resp) -> bool {
 			if (resp.HasHeader("Content-Length")) {
-				try { total_size = std::stoll(resp.GetHeaderValue("Content-Length")); } catch (...) {}
+				try {
+					total_size = std::stoll(resp.GetHeaderValue("Content-Length"));
+				} catch (...) {
+				}
 			}
 			return true;
 		};
@@ -1475,9 +1507,8 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 			fwrite(data, 1, static_cast<size_t>(len), f);
 			downloaded += static_cast<int64_t>(len);
 			if (total_size > 0) {
-				fprintf(stderr, "\rDownloading %s: %.1f / %.1f MB (%.0f%%)   ",
-				        bind.model_name.c_str(), downloaded / 1e6, total_size / 1e6,
-				        100.0 * downloaded / total_size);
+				fprintf(stderr, "\rDownloading %s: %.1f / %.1f MB (%.0f%%)   ", bind.model_name.c_str(),
+				        downloaded / 1e6, total_size / 1e6, 100.0 * downloaded / total_size);
 			} else {
 				fprintf(stderr, "\rDownloading %s: %.1f MB   ", bind.model_name.c_str(), downloaded / 1e6);
 			}
@@ -1490,8 +1521,7 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 		fprintf(stderr, "\n");
 		if (!response || !response->Success()) {
 			remove(bind.local_path.c_str());
-			throw IOException("Model download failed: %s",
-			                  response ? response->GetError() : "no response");
+			throw IOException("Model download failed: %s", response ? response->GetError() : "no response");
 		}
 		state->bytes_downloaded = downloaded;
 	}
@@ -1500,9 +1530,10 @@ static unique_ptr<GlobalTableFunctionState> DownloadModelInitGlobal(ClientContex
 }
 
 static void DownloadModelScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
-	auto &bind  = data_p.bind_data->Cast<DownloadModelBindData>();
+	auto &bind = data_p.bind_data->Cast<DownloadModelBindData>();
 	auto &state = data_p.global_state->Cast<DownloadModelGlobalState>();
-	if (state.returned) return;
+	if (state.returned)
+		return;
 	state.returned = true;
 	output.SetCardinality(1);
 	output.data[0].SetValue(0, Value(bind.model_name));
@@ -1520,10 +1551,9 @@ struct LlamaInstruction {
 };
 
 static const LlamaInstruction LLAMA_INSTRUCTIONS[] = {
-    {"describe-table",
-     "DESCRIBE <table> — column names and types.\n"
-     "SUMMARIZE <table> — per-column stats: min/max/avg/count/null%/distinct.\n"
-     "FROM duckdb_columns() WHERE table_name = '<table>' — programmatic access."},
+    {"describe-table", "DESCRIBE <table> — column names and types.\n"
+                       "SUMMARIZE <table> — per-column stats: min/max/avg/count/null%/distinct.\n"
+                       "FROM duckdb_columns() WHERE table_name = '<table>' — programmatic access."},
 
     {"list-tables",
      "FROM duckdb_tables() — all tables with database_name, schema_name, table_name, estimated_size.\n"
@@ -1536,39 +1566,33 @@ static const LlamaInstruction LLAMA_INSTRUCTIONS[] = {
      "SUMMARIZE <table> — per-column min/max/avg/count/null%/distinct in one shot.\n"
      "SELECT COUNT(*) FILTER (WHERE col IS NULL) AS nulls, COUNT(DISTINCT col) AS distinct_count FROM <table>."},
 
-    {"query-performance",
-     "EXPLAIN ANALYZE <query> — execution plan with actual timing and row counts.\n"
-     "EXPLAIN <query> — logical plan without executing.\n"
-     "SET threads = N; — control parallelism."},
+    {"query-performance", "EXPLAIN ANALYZE <query> — execution plan with actual timing and row counts.\n"
+                          "EXPLAIN <query> — logical plan without executing.\n"
+                          "SET threads = N; — control parallelism."},
 
-    {"indexes",
-     "FROM duckdb_indexes() — all indexes: table_name, index_name, column_names, is_unique.\n"
-     "CREATE INDEX idx ON <table>(col); — add an index (write, not available here)."},
+    {"indexes", "FROM duckdb_indexes() — all indexes: table_name, index_name, column_names, is_unique.\n"
+                "CREATE INDEX idx ON <table>(col); — add an index (write, not available here)."},
 
-    {"constraints",
-     "FROM duckdb_constraints() — all constraints: table_name, constraint_type (PRIMARY KEY, FOREIGN KEY, UNIQUE, CHECK), column_names."},
+    {"constraints", "FROM duckdb_constraints() — all constraints: table_name, constraint_type (PRIMARY KEY, FOREIGN "
+                    "KEY, UNIQUE, CHECK), column_names."},
 
-    {"functions",
-     "FROM duckdb_functions() WHERE function_name ILIKE '%<keyword>%' — search by name.\n"
-     "FROM duckdb_functions() WHERE function_type = 'macro' — user-defined macros.\n"
-     "FROM duckdb_functions() WHERE function_type = 'aggregate' — aggregate functions."},
+    {"functions", "FROM duckdb_functions() WHERE function_name ILIKE '%<keyword>%' — search by name.\n"
+                  "FROM duckdb_functions() WHERE function_type = 'macro' — user-defined macros.\n"
+                  "FROM duckdb_functions() WHERE function_type = 'aggregate' — aggregate functions."},
 
-    {"extensions",
-     "FROM duckdb_extensions() WHERE loaded = true — currently loaded extensions.\n"
-     "FROM duckdb_extensions() — all known extensions with version and description."},
+    {"extensions", "FROM duckdb_extensions() WHERE loaded = true — currently loaded extensions.\n"
+                   "FROM duckdb_extensions() — all known extensions with version and description."},
 
-    {"file-formats",
-     "SELECT * FROM read_csv('file.csv', auto_detect=true)\n"
-     "SELECT * FROM read_parquet('file.parquet') — or glob: 'dir/*.parquet'\n"
-     "SELECT * FROM read_json('file.json', auto_detect=true)\n"
-     "SELECT * FROM read_json_auto('file.json')\n"
-     "COPY <table> TO 'out.parquet' (FORMAT PARQUET);"},
+    {"file-formats", "SELECT * FROM read_csv('file.csv', auto_detect=true)\n"
+                     "SELECT * FROM read_parquet('file.parquet') — or glob: 'dir/*.parquet'\n"
+                     "SELECT * FROM read_json('file.json', auto_detect=true)\n"
+                     "SELECT * FROM read_json_auto('file.json')\n"
+                     "COPY <table> TO 'out.parquet' (FORMAT PARQUET);"},
 
-    {"aggregate-stats",
-     "COUNT(*), COUNT(DISTINCT col), AVG(col), SUM(col), MIN(col), MAX(col), STDDEV(col)\n"
-     "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY col) AS median\n"
-     "MODE() WITHIN GROUP (ORDER BY col)\n"
-     "APPROX_COUNT_DISTINCT(col) — fast distinct estimate."},
+    {"aggregate-stats", "COUNT(*), COUNT(DISTINCT col), AVG(col), SUM(col), MIN(col), MAX(col), STDDEV(col)\n"
+                        "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY col) AS median\n"
+                        "MODE() WITHIN GROUP (ORDER BY col)\n"
+                        "APPROX_COUNT_DISTINCT(col) — fast distinct estimate."},
 
     {"window-functions",
      "ROW_NUMBER() OVER (PARTITION BY grp ORDER BY col)\n"
@@ -1576,65 +1600,55 @@ static const LlamaInstruction LLAMA_INSTRUCTIONS[] = {
      "LAG(col, 1) OVER (ORDER BY col) — previous row value\n"
      "SUM(col) OVER (PARTITION BY grp ORDER BY ts ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) — running total"},
 
-    {"date-time",
-     "DATE_TRUNC('month', col) — truncate to period (year/month/week/day/hour)\n"
-     "DATE_DIFF('day', start_col, end_col) — difference in units\n"
-     "STRFTIME(col, '%Y-%m-%d') — format a date\n"
-     "NOW(), TODAY(), CURRENT_DATE\n"
-     "col AT TIME ZONE 'UTC' — timezone conversion"},
+    {"date-time", "DATE_TRUNC('month', col) — truncate to period (year/month/week/day/hour)\n"
+                  "DATE_DIFF('day', start_col, end_col) — difference in units\n"
+                  "STRFTIME(col, '%Y-%m-%d') — format a date\n"
+                  "NOW(), TODAY(), CURRENT_DATE\n"
+                  "col AT TIME ZONE 'UTC' — timezone conversion"},
 
-    {"string-ops",
-     "LOWER(col), UPPER(col), TRIM(col), LENGTH(col)\n"
-     "col ILIKE '%pattern%' — case-insensitive LIKE\n"
-     "REGEXP_MATCHES(col, 'pattern') — regex filter\n"
-     "REGEXP_EXTRACT(col, '(group)') — capture group\n"
-     "STRING_SPLIT(col, ',') — split to list\n"
-     "LIST_JOIN(list_col, ', ') — join list to string"},
+    {"string-ops", "LOWER(col), UPPER(col), TRIM(col), LENGTH(col)\n"
+                   "col ILIKE '%pattern%' — case-insensitive LIKE\n"
+                   "REGEXP_MATCHES(col, 'pattern') — regex filter\n"
+                   "REGEXP_EXTRACT(col, '(group)') — capture group\n"
+                   "STRING_SPLIT(col, ',') — split to list\n"
+                   "LIST_JOIN(list_col, ', ') — join list to string"},
 
-    {"json",
-     "col->>'$.key' — extract JSON field as text\n"
-     "col->'$.key' — extract JSON field as JSON value\n"
-     "json_extract_string(col, '$.key')\n"
-     "UNNEST(json_extract(col, '$.array')) — expand JSON array to rows\n"
-     "FROM read_json_auto('file.json')"},
+    {"json", "col->>'$.key' — extract JSON field as text\n"
+             "col->'$.key' — extract JSON field as JSON value\n"
+             "json_extract_string(col, '$.key')\n"
+             "UNNEST(json_extract(col, '$.array')) — expand JSON array to rows\n"
+             "FROM read_json_auto('file.json')"},
 };
 
-static constexpr idx_t LLAMA_INSTRUCTIONS_COUNT =
-    sizeof(LLAMA_INSTRUCTIONS) / sizeof(LLAMA_INSTRUCTIONS[0]);
+static constexpr idx_t LLAMA_INSTRUCTIONS_COUNT = sizeof(LLAMA_INSTRUCTIONS) / sizeof(LLAMA_INSTRUCTIONS[0]);
 
 // ---------------------------------------------------------------------------
 // llama_error_hints — common mistakes with correct usage examples
 // ---------------------------------------------------------------------------
 
 struct LlamaErrorHint {
-	const char *error_pattern;   // keyword to ILIKE-match against error messages
-	const char *wrong_usage;     // what the model did wrong
-	const char *correct_usage;   // the correct SQL to use instead
+	const char *error_pattern; // keyword to ILIKE-match against error messages
+	const char *wrong_usage;   // what the model did wrong
+	const char *correct_usage; // the correct SQL to use instead
 };
 
 static const LlamaErrorHint LLAMA_ERROR_HINTS[] = {
-    {"No function matches.*duckdb_tables",
-     "FROM duckdb_tables('mydb')",
+    {"No function matches.*duckdb_tables", "FROM duckdb_tables('mydb')",
      "FROM duckdb_tables() WHERE database_name = 'mydb'"},
 
-    {"No function matches.*duckdb_columns",
-     "FROM duckdb_columns('mydb')",
+    {"No function matches.*duckdb_columns", "FROM duckdb_columns('mydb')",
      "FROM duckdb_columns() WHERE database_name = 'mydb' AND table_name = 'mytable'"},
 
-    {"No function matches.*duckdb_schemas",
-     "FROM duckdb_schemas('mydb')",
+    {"No function matches.*duckdb_schemas", "FROM duckdb_schemas('mydb')",
      "FROM duckdb_schemas() WHERE database_name = 'mydb'"},
 
-    {"No function matches.*duckdb_views",
-     "FROM duckdb_views('mydb')",
+    {"No function matches.*duckdb_views", "FROM duckdb_views('mydb')",
      "FROM duckdb_views() WHERE database_name = 'mydb'"},
 
-    {"No function matches.*duckdb_indexes",
-     "FROM duckdb_indexes('mydb')",
+    {"No function matches.*duckdb_indexes", "FROM duckdb_indexes('mydb')",
      "FROM duckdb_indexes() WHERE database_name = 'mydb'"},
 
-    {"No function matches.*duckdb_functions",
-     "FROM duckdb_functions('keyword')",
+    {"No function matches.*duckdb_functions", "FROM duckdb_functions('keyword')",
      "FROM duckdb_functions() WHERE function_name ILIKE '%keyword%'"},
 
     {"information_schema.*0 rows|0 rows.*information_schema",
@@ -1644,18 +1658,15 @@ static const LlamaErrorHint LLAMA_ERROR_HINTS[] = {
     // In DuckDB information_schema, table_schema is the schema (e.g. 'main'),
     // NOT the database name.  Use table_catalog for the database/catalog name.
     // Hint is phrased as a ready-to-run ASK_SQL so the coordinator can use it directly.
-    {"information_schema",
-     "WHERE table_schema = 'mydb'  -- wrong: table_schema is the schema name, not the database",
+    {"information_schema", "WHERE table_schema = 'mydb'  -- wrong: table_schema is the schema name, not the database",
      "ASK_SQL: FROM duckdb_tables() WHERE database_name = 'mydb'\n"
      "-- OR: SELECT table_name FROM information_schema.tables WHERE table_catalog = 'mydb'\n"
      "-- table_catalog = database name (e.g. 'dd'), table_schema = schema (e.g. 'main')"},
 
-    {"Catalog.*not found|database.*not found",
-     "FROM mytable  -- when the table is in an attached database",
+    {"Catalog.*not found|database.*not found", "FROM mytable  -- when the table is in an attached database",
      "FROM mydb.main.mytable  -- qualify with database.schema.table"},
 
-    {"Column.*not found|does not have a column",
-     "SELECT bad_col FROM t",
+    {"Column.*not found|does not have a column", "SELECT bad_col FROM t",
      "Run: DESCRIBE t  -- to see actual column names\n"
      "Common mistakes:\n"
      "  duckdb_tables()  → table_name, database_name, schema_name, column_count, estimated_size\n"
@@ -1663,18 +1674,15 @@ static const LlamaErrorHint LLAMA_ERROR_HINTS[] = {
      "  duckdb_columns() → column_name, table_name, database_name, data_type, column_index\n"
      "  duckdb_schemas() → schema_name, database_name  (NOT 'name')"},
 
-    {"Binder.*No table.*function.*match|table function.*no.*overload",
-     "FROM duckdb_summary('wrong_topic')",
+    {"Binder.*No table.*function.*match|table function.*no.*overload", "FROM duckdb_summary('wrong_topic')",
      "FROM duckdb_summary()  -- valid topics: 'schema', 'context', 'all'"},
 
-    {"duckdb_summary|Invalid.*topic",
-     "FROM duckdb_summary('database') WHERE database_name = 'mydb'",
+    {"duckdb_summary|Invalid.*topic", "FROM duckdb_summary('database') WHERE database_name = 'mydb'",
      "FROM duckdb_summary('context')  -- shows attached databases; valid topics: 'schema', 'context', 'all'\n"
      "-- duckdb_summary does NOT accept a database_name filter; use duckdb_tables() for that"},
 };
 
-static constexpr idx_t LLAMA_ERROR_HINTS_COUNT =
-    sizeof(LLAMA_ERROR_HINTS) / sizeof(LLAMA_ERROR_HINTS[0]);
+static constexpr idx_t LLAMA_ERROR_HINTS_COUNT = sizeof(LLAMA_ERROR_HINTS) / sizeof(LLAMA_ERROR_HINTS[0]);
 
 // Scan LLAMA_ERROR_HINTS for entries whose pattern matches the error text.
 // Returns formatted hint lines ready to append to context, or empty string.
@@ -1682,8 +1690,7 @@ string MatchErrorHints(const string &error_text) {
 	string result;
 	for (idx_t i = 0; i < LLAMA_ERROR_HINTS_COUNT; i++) {
 		try {
-			std::regex re(LLAMA_ERROR_HINTS[i].error_pattern,
-			              std::regex::icase | std::regex::ECMAScript);
+			std::regex re(LLAMA_ERROR_HINTS[i].error_pattern, std::regex::icase | std::regex::ECMAScript);
 			if (std::regex_search(error_text, re)) {
 				result += string("Hint — instead of: ") + LLAMA_ERROR_HINTS[i].wrong_usage + "\n";
 				result += string("       use:        ") + LLAMA_ERROR_HINTS[i].correct_usage + "\n";
@@ -1699,12 +1706,10 @@ struct LlamaInstructionsGlobalState : public GlobalTableFunctionState {
 	idx_t row = 0;
 };
 
-static unique_ptr<FunctionData> LlamaInstructionsBind(ClientContext & /*context*/,
-                                                      TableFunctionBindInput & /*input*/,
-                                                      vector<LogicalType> &return_types,
-                                                      vector<string> &names) {
+static unique_ptr<FunctionData> LlamaInstructionsBind(ClientContext & /*context*/, TableFunctionBindInput & /*input*/,
+                                                      vector<LogicalType> &return_types, vector<string> &names) {
 	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR};
-	names        = {"task", "hint"};
+	names = {"task", "hint"};
 	return nullptr;
 }
 
@@ -1715,7 +1720,7 @@ static unique_ptr<GlobalTableFunctionState> LlamaInstructionsInitGlobal(ClientCo
 
 static void LlamaInstructionsScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &gstate = data_p.global_state->Cast<LlamaInstructionsGlobalState>();
-	idx_t count  = 0;
+	idx_t count = 0;
 	while (gstate.row < LLAMA_INSTRUCTIONS_COUNT && count < STANDARD_VECTOR_SIZE) {
 		auto &instr = LLAMA_INSTRUCTIONS[gstate.row];
 		output.data[0].SetValue(count, Value(instr.task));
@@ -1732,12 +1737,10 @@ struct LlamaErrorHintsGlobalState : public GlobalTableFunctionState {
 	idx_t row = 0;
 };
 
-static unique_ptr<FunctionData> LlamaErrorHintsBind(ClientContext & /*context*/,
-                                                    TableFunctionBindInput & /*input*/,
-                                                    vector<LogicalType> &return_types,
-                                                    vector<string> &names) {
+static unique_ptr<FunctionData> LlamaErrorHintsBind(ClientContext & /*context*/, TableFunctionBindInput & /*input*/,
+                                                    vector<LogicalType> &return_types, vector<string> &names) {
 	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR};
-	names        = {"error_pattern", "wrong_usage", "correct_usage"};
+	names = {"error_pattern", "wrong_usage", "correct_usage"};
 	return nullptr;
 }
 
@@ -1748,7 +1751,7 @@ static unique_ptr<GlobalTableFunctionState> LlamaErrorHintsInitGlobal(ClientCont
 
 static void LlamaErrorHintsScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &gstate = data_p.global_state->Cast<LlamaErrorHintsGlobalState>();
-	idx_t count  = 0;
+	idx_t count = 0;
 	while (gstate.row < LLAMA_ERROR_HINTS_COUNT && count < STANDARD_VECTOR_SIZE) {
 		auto &h = LLAMA_ERROR_HINTS[gstate.row];
 		output.data[0].SetValue(count, Value(h.error_pattern));
@@ -1760,14 +1763,13 @@ static void LlamaErrorHintsScan(ClientContext & /*context*/, TableFunctionInput 
 	output.SetCardinality(count);
 }
 
-static unique_ptr<TableRef> LlamaErrorHintsReplacementScan(ClientContext &context,
-                                                            ReplacementScanInput &input,
-                                                            optional_ptr<ReplacementScanData> /*data*/) {
+static unique_ptr<TableRef> LlamaErrorHintsReplacementScan(ClientContext &context, ReplacementScanInput &input,
+                                                           optional_ptr<ReplacementScanData> /*data*/) {
 	if (input.table_name != "llama_error_hints") {
 		return nullptr;
 	}
 	vector<LogicalType> types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR};
-	vector<string>      names = {"error_pattern", "wrong_usage", "correct_usage"};
+	vector<string> names = {"error_pattern", "wrong_usage", "correct_usage"};
 	auto collection = make_uniq<ColumnDataCollection>(context, types);
 	DataChunk chunk;
 	chunk.Initialize(context, types);
@@ -1790,18 +1792,16 @@ struct LlamaModelsGlobalState : public GlobalTableFunctionState {
 	string models_dir;
 };
 
-static unique_ptr<FunctionData> LlamaModelsBind(ClientContext & /*context*/,
-                                                TableFunctionBindInput & /*input*/,
-                                                vector<LogicalType> &return_types,
-                                                vector<string> &names) {
-	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR,
-	                LogicalType::DOUBLE,  LogicalType::BOOLEAN, LogicalType::VARCHAR};
-	names        = {"name", "description", "size_gb", "downloaded", "url"};
+static unique_ptr<FunctionData> LlamaModelsBind(ClientContext & /*context*/, TableFunctionBindInput & /*input*/,
+                                                vector<LogicalType> &return_types, vector<string> &names) {
+	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::DOUBLE, LogicalType::BOOLEAN,
+	                LogicalType::VARCHAR};
+	names = {"name", "description", "size_gb", "downloaded", "url"};
 	return nullptr;
 }
 
 static unique_ptr<GlobalTableFunctionState> LlamaModelsInitGlobal(ClientContext &context,
-                                                                   TableFunctionInitInput & /*input*/) {
+                                                                  TableFunctionInitInput & /*input*/) {
 	auto gstate = make_uniq<LlamaModelsGlobalState>();
 	gstate->models_dir = GetModelsModelsDir(FileSystem::GetFileSystem(context));
 	return gstate;
@@ -1809,7 +1809,7 @@ static unique_ptr<GlobalTableFunctionState> LlamaModelsInitGlobal(ClientContext 
 
 static void LlamaModelsScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &gstate = data_p.global_state->Cast<LlamaModelsGlobalState>();
-	idx_t count  = 0;
+	idx_t count = 0;
 	while (gstate.row < MODEL_CATALOG_COUNT && count < STANDARD_VECTOR_SIZE) {
 		auto &m = MODEL_CATALOG[gstate.row];
 		// Determine local filename from URL (last path component).
@@ -1831,18 +1831,17 @@ static void LlamaModelsScan(ClientContext & /*context*/, TableFunctionInput &dat
 	output.SetCardinality(count);
 }
 
-static unique_ptr<TableRef> LlamaModelsReplacementScan(ClientContext &context,
-                                                        ReplacementScanInput &input,
-                                                        optional_ptr<ReplacementScanData> /*data*/) {
+static unique_ptr<TableRef> LlamaModelsReplacementScan(ClientContext &context, ReplacementScanInput &input,
+                                                       optional_ptr<ReplacementScanData> /*data*/) {
 	if (input.table_name != "llama_models") {
 		return nullptr;
 	}
 	auto &fs = FileSystem::GetFileSystem(context);
 	string models_dir = GetModelsModelsDir(fs);
 
-	vector<LogicalType> types = {LogicalType::VARCHAR, LogicalType::VARCHAR,
-	                              LogicalType::DOUBLE,  LogicalType::BOOLEAN, LogicalType::VARCHAR};
-	vector<string>      names = {"name", "description", "size_gb", "downloaded", "url"};
+	vector<LogicalType> types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::DOUBLE, LogicalType::BOOLEAN,
+	                             LogicalType::VARCHAR};
+	vector<string> names = {"name", "description", "size_gb", "downloaded", "url"};
 	auto collection = make_uniq<ColumnDataCollection>(context, types);
 	DataChunk chunk;
 	chunk.Initialize(context, types);
@@ -1931,7 +1930,7 @@ struct BufferedShellState : public BaseShellState {
 // ---------------------------------------------------------------------------
 
 struct AskModelsBindData : public FunctionData {
-	string                           question;
+	string question;
 	shared_ptr<ModelsExtensionState> state;
 
 	unique_ptr<FunctionData> Copy() const override {
@@ -1943,39 +1942,39 @@ struct AskModelsBindData : public FunctionData {
 };
 
 struct AskModelsGlobalState : public GlobalTableFunctionState {
-	string  answer;
-	idx_t   entry_id       = 0;
-	double  elapsed        = 0.0;
-	string  stats_json;
-	bool    returned       = false;
+	string answer;
+	idx_t entry_id = 0;
+	double elapsed = 0.0;
+	string stats_json;
+	bool returned = false;
 };
 
-static unique_ptr<FunctionData> AskModelsBind(ClientContext & /*context*/,
-                                               TableFunctionBindInput &input,
-                                               vector<LogicalType> &return_types,
-                                               vector<string> &names) {
-	return_types   = {LogicalType::VARCHAR, LogicalType::VARCHAR};
-	names          = {"answer", "stats"};
-	auto bind      = make_uniq<AskModelsBindData>();
+static unique_ptr<FunctionData> AskModelsBind(ClientContext & /*context*/, TableFunctionBindInput &input,
+                                              vector<LogicalType> &return_types, vector<string> &names) {
+	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR};
+	names = {"answer", "stats"};
+	auto bind = make_uniq<AskModelsBindData>();
 	bind->question = input.inputs[0].GetValue<string>();
-	bind->state    = input.info->Cast<ModelsTableFunctionInfo>().state;
+	bind->state = input.info->Cast<ModelsTableFunctionInfo>().state;
 	return bind;
 }
 
-static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &context,
-                                                                 TableFunctionInitInput &input) {
-	auto &bind  = input.bind_data->Cast<AskModelsBindData>();
+static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
+	auto &bind = input.bind_data->Cast<AskModelsBindData>();
 	auto &state = bind.state;
-	auto  gstate = make_uniq<AskModelsGlobalState>();
+	auto gstate = make_uniq<AskModelsGlobalState>();
 
 	auto read_str = [&](const string &key, const string &def = "") -> string {
-		Value v; return context.TryGetCurrentSetting(key, v) ? v.ToString() : def;
+		Value v;
+		return context.TryGetCurrentSetting(key, v) ? v.ToString() : def;
 	};
 	auto read_int = [&](const string &key, int32_t def) -> int32_t {
-		Value v; return context.TryGetCurrentSetting(key, v) ? v.GetValue<int32_t>() : def;
+		Value v;
+		return context.TryGetCurrentSetting(key, v) ? v.GetValue<int32_t>() : def;
 	};
 	auto read_dbl = [&](const string &key, double def) -> double {
-		Value v; return context.TryGetCurrentSetting(key, v) ? v.GetValue<double>() : def;
+		Value v;
+		return context.TryGetCurrentSetting(key, v) ? v.GetValue<double>() : def;
 	};
 
 	string sql_expert = read_str("sql_expert_model");
@@ -1993,38 +1992,39 @@ static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &c
 
 	InteractionStats istats;
 	auto finish_history = [&](const string &ans) {
-	    double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_ask).count();
-	    auto &entry = state->history.back();
-	    entry.answer          = ans;
-	    entry.elapsed_seconds = elapsed;
-	    entry.pending         = false;
-	    entry.stats           = istats.ToJSON();
-	    // Print the full answer directly so it isn't truncated by DuckDB's table renderer.
-	    fprintf(stdout, "\n%s\n\n", ans.c_str());
-	    fflush(stdout);
-	    // Merge id and elapsed_seconds into stats JSON.
-	    string base = entry.stats; // e.g. {"sql_total":1,...}
-	    // Insert id and elapsed_seconds before the closing '}'.
-	    auto pos = base.rfind('}');
-	    string merged = (pos == string::npos) ? base
-	        : base.substr(0, pos) +
-	          StringUtil::Format(",\"id\":%llu,\"elapsed_seconds\":%.3f}", (unsigned long long)entry.id, elapsed);
-	    // Fill gstate for the returned table row.
-	    gstate->answer     = ans;
-	    gstate->entry_id   = entry.id;
-	    gstate->elapsed    = elapsed;
-	    gstate->stats_json = merged;
+		double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_ask).count();
+		auto &entry = state->history.back();
+		entry.answer = ans;
+		entry.elapsed_seconds = elapsed;
+		entry.pending = false;
+		entry.stats = istats.ToJSON();
+		// Print the full answer directly so it isn't truncated by DuckDB's table renderer.
+		fprintf(stdout, "\n%s\n\n", ans.c_str());
+		fflush(stdout);
+		// Merge id and elapsed_seconds into stats JSON.
+		string base = entry.stats; // e.g. {"sql_total":1,...}
+		// Insert id and elapsed_seconds before the closing '}'.
+		auto pos = base.rfind('}');
+		string merged = (pos == string::npos)
+		                    ? base
+		                    : base.substr(0, pos) + StringUtil::Format(",\"id\":%llu,\"elapsed_seconds\":%.3f}",
+		                                                               (unsigned long long)entry.id, elapsed);
+		// Fill gstate for the returned table row.
+		gstate->answer = ans;
+		gstate->entry_id = entry.id;
+		gstate->elapsed = elapsed;
+		gstate->stats_json = merged;
 	};
 
 	if (sql_expert != "claude") {
-		auto   &fs         = FileSystem::GetFileSystem(context);
-		string  model_path = ResolveModelPath(sql_expert, fs);
-		int32_t n_ctx      = read_int("llama_context_size", 8192);
-		int32_t n_gpu      = read_int("llama_gpu_layers",   -1);
-		string  coord_path = coord_raw.empty() || coord_raw == "claude" ? "" : ResolveModelPath(coord_raw, fs);
-		double  time_budget  = read_dbl("coordinator_time_budget", 60.0);
-		int32_t coord_rounds = read_int("coordinator_max_rounds",   12);
-		string  worker_style = ResolveWorkerStyle(read_str("sql_expert_model_style", "auto"), model_path);
+		auto &fs = FileSystem::GetFileSystem(context);
+		string model_path = ResolveModelPath(sql_expert, fs);
+		int32_t n_ctx = read_int("llama_context_size", 8192);
+		int32_t n_gpu = read_int("llama_gpu_layers", -1);
+		string coord_path = coord_raw.empty() || coord_raw == "claude" ? "" : ResolveModelPath(coord_raw, fs);
+		double time_budget = read_dbl("coordinator_time_budget", 60.0);
+		int32_t coord_rounds = read_int("coordinator_max_rounds", 12);
+		string worker_style = ResolveWorkerStyle(read_str("sql_expert_model_style", "auto"), model_path);
 
 		if (model_path.empty()) {
 			// sql_expert_model didn't resolve — fall back to first GGUF in managed dir.
@@ -2047,8 +2047,8 @@ static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &c
 				finish_history(gstate->answer);
 				return gstate;
 			}
-			state->llama_model_path   = model_path;
-			state->llama_n_ctx        = n_ctx;
+			state->llama_model_path = model_path;
+			state->llama_n_ctx = n_ctx;
 			state->llama_n_gpu_layers = n_gpu;
 		}
 
@@ -2069,19 +2069,18 @@ static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &c
 			WorkerFn worker_fn = [&](const string &q) -> string {
 				return RunModelsSubprocessLoop(context, shell, q, 120, istats);
 			};
-			gstate->answer = RunModelsCoordinatorLoop(context, shell, worker_fn,
-			                                          bind.question, 120, coord_rounds, istats);
+			gstate->answer =
+			    RunModelsCoordinatorLoop(context, shell, worker_fn, bind.question, 120, coord_rounds, istats);
 		} else if (!coord_path.empty() && state->coordinator_llama.IsLoaded()) {
 			// Llama coordinator + llama worker
-			gstate->answer = RunCoordinatorLoop(context, shell,
-			                                    state->coordinator_llama, state->llama,
-			                                    bind.question, 120,
-			                                    time_budget, coord_rounds, worker_style);
+			gstate->answer = RunCoordinatorLoop(context, shell, state->coordinator_llama, state->llama, bind.question,
+			                                    120, time_budget, coord_rounds, worker_style);
 		} else {
 			// No coordinator — direct llama loop
 			gstate->answer = RunLlamaLoop(context, shell, state->llama, bind.question, 120);
 		}
-		if (gstate->answer.empty()) gstate->answer = shell.output;
+		if (gstate->answer.empty())
+			gstate->answer = shell.output;
 		gstate->answer = gstate->answer;
 		finish_history(gstate->answer);
 		return gstate;
@@ -2097,20 +2096,21 @@ static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &c
 		WorkerFn worker_fn = [&](const string &q) -> string {
 			return RunModelsSubprocessLoop(context, shell, q, 120, istats);
 		};
-		gstate->answer = RunModelsCoordinatorLoop(context, shell, worker_fn,
-		    bind.question, 120, read_int("coordinator_max_rounds", 12), istats);
-		if (gstate->answer == "") gstate->answer = shell.output;
+		gstate->answer = RunModelsCoordinatorLoop(context, shell, worker_fn, bind.question, 120,
+		                                          read_int("coordinator_max_rounds", 12), istats);
+		if (gstate->answer == "")
+			gstate->answer = shell.output;
 		finish_history(gstate->answer);
 		return gstate;
 	}
 
 	if (!coord_raw.empty() && coord_raw != "claude") {
-		auto   &fs         = FileSystem::GetFileSystem(context);
-		string  coord_path = ResolveModelPath(coord_raw, fs);
-		int32_t n_ctx      = read_int("llama_context_size", 8192);
-		int32_t n_gpu      = read_int("llama_gpu_layers",   -1);
-		double  time_budget  = read_dbl("coordinator_time_budget", 60.0);
-		int32_t coord_rounds = read_int("coordinator_max_rounds",   12);
+		auto &fs = FileSystem::GetFileSystem(context);
+		string coord_path = ResolveModelPath(coord_raw, fs);
+		int32_t n_ctx = read_int("llama_context_size", 8192);
+		int32_t n_gpu = read_int("llama_gpu_layers", -1);
+		double time_budget = read_dbl("coordinator_time_budget", 60.0);
+		int32_t coord_rounds = read_int("coordinator_max_rounds", 12);
 
 		if (!state->coordinator_llama.IsLoaded() || coord_path != state->coordinator_model_path) {
 			BufferedShellState load_state;
@@ -2127,10 +2127,10 @@ static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &c
 			WorkerFn worker_fn = [&](const string &q) -> string {
 				return RunModelsSubprocessLoop(context, shell, q, 120, istats);
 			};
-			gstate->answer = RunCoordinatorLoopWithWorker(
-			    context, shell, state->coordinator_llama, worker_fn,
-			    bind.question, 120, time_budget, coord_rounds);
-			if (gstate->answer == "") gstate->answer = shell.output;
+			gstate->answer = RunCoordinatorLoopWithWorker(context, shell, state->coordinator_llama, worker_fn,
+			                                              bind.question, 120, time_budget, coord_rounds);
+			if (gstate->answer == "")
+				gstate->answer = shell.output;
 			finish_history(gstate->answer);
 			return gstate;
 		}
@@ -2139,7 +2139,8 @@ static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &c
 	{
 		BufferedShellState shell;
 		gstate->answer = RunModelsSubprocessLoop(context, shell, bind.question, 120, istats);
-		if (gstate->answer == "") gstate->answer = shell.output;
+		if (gstate->answer == "")
+			gstate->answer = shell.output;
 	}
 	finish_history(gstate->answer);
 	return gstate;
@@ -2147,7 +2148,8 @@ static unique_ptr<GlobalTableFunctionState> AskModelsInitGlobal(ClientContext &c
 
 static void AskModelsScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &gstate = data_p.global_state->Cast<AskModelsGlobalState>();
-	if (gstate.returned) return;
+	if (gstate.returned)
+		return;
 	gstate.returned = true;
 	output.SetCardinality(1);
 	output.data[0].SetValue(0, Value(gstate.answer));
@@ -2159,13 +2161,12 @@ static void AskModelsScan(ClientContext & /*context*/, TableFunctionInput &data_
 // ---------------------------------------------------------------------------
 
 struct DiscoveredModel {
-	string name;        // filename without .gguf extension
-	string path;        // absolute path
-	string size;        // human-readable, e.g. "3.8 GiB"
-	idx_t  size_bytes;  // raw size for comparisons
-	string source;      // "claude", "lmstudio", "jan", "huggingface", "gpt4all", "other"
+	string name;      // filename without .gguf extension
+	string path;      // absolute path
+	string size;      // human-readable, e.g. "3.8 GiB"
+	idx_t size_bytes; // raw size for comparisons
+	string source;    // "claude", "lmstudio", "jan", "huggingface", "gpt4all", "other"
 };
-
 
 // Returns a deduplicated list of GGUF files found in standard tool directories.
 static vector<DiscoveredModel> ScanGgufModels(FileSystem &fs) {
@@ -2173,14 +2174,14 @@ static vector<DiscoveredModel> ScanGgufModels(FileSystem &fs) {
 
 	// (glob_pattern, source_label) — order matters; first match wins for dedup
 	vector<std::pair<string, string>> scan_dirs = {
-	    {GetModelsModelsDir(fs) + "/*.gguf",                              "models"},
-	    {home + "/.lmstudio/models/**/*.gguf",                            "lmstudio"},
-	    {home + "/jan/models/**/*.gguf",                                  "jan"},
-	    {home + "/.cache/huggingface/hub/models--*/snapshots/**/*.gguf",  "huggingface"},
+	    {GetModelsModelsDir(fs) + "/*.gguf", "models"},
+	    {home + "/.lmstudio/models/**/*.gguf", "lmstudio"},
+	    {home + "/jan/models/**/*.gguf", "jan"},
+	    {home + "/.cache/huggingface/hub/models--*/snapshots/**/*.gguf", "huggingface"},
 #ifdef __APPLE__
-	    {home + "/Library/Application Support/nomic.ai/GPT4All/*.gguf",  "gpt4all"},
+	    {home + "/Library/Application Support/nomic.ai/GPT4All/*.gguf", "gpt4all"},
 #else
-	    {home + "/.local/share/nomic.ai/GPT4All/*.gguf",                 "gpt4all"},
+	    {home + "/.local/share/nomic.ai/GPT4All/*.gguf", "gpt4all"},
 #endif
 	};
 
@@ -2191,17 +2192,20 @@ static vector<DiscoveredModel> ScanGgufModels(FileSystem &fs) {
 		vector<string> matches;
 		try {
 			auto glob_results = fs.Glob(pattern);
-			for (auto &gr : glob_results) matches.push_back(gr.path);
+			for (auto &gr : glob_results)
+				matches.push_back(gr.path);
 		} catch (...) {
 			continue; // directory doesn't exist — silently skip
 		}
 
 		for (auto &path : matches) {
-			if (seen_paths.count(path)) continue;
+			if (seen_paths.count(path))
+				continue;
 			seen_paths.insert(path);
 
 			struct stat st;
-			if (stat(path.c_str(), &st) != 0 || st.st_size == 0) continue;
+			if (stat(path.c_str(), &st) != 0 || st.st_size == 0)
+				continue;
 
 			// Derive name from filename without extension
 			auto slash = path.rfind('/');
@@ -2223,18 +2227,15 @@ struct DiscoverModelsGlobalState : public GlobalTableFunctionState {
 	idx_t row = 0;
 };
 
-static unique_ptr<FunctionData> DiscoverModelsBind(ClientContext & /*context*/,
-                                                    TableFunctionBindInput & /*input*/,
-                                                    vector<LogicalType> &return_types,
-                                                    vector<string> &names) {
-	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR,
-	                LogicalType::VARCHAR, LogicalType::VARCHAR};
-	names        = {"name", "path", "size", "source"};
+static unique_ptr<FunctionData> DiscoverModelsBind(ClientContext & /*context*/, TableFunctionBindInput & /*input*/,
+                                                   vector<LogicalType> &return_types, vector<string> &names) {
+	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR};
+	names = {"name", "path", "size", "source"};
 	return nullptr;
 }
 
 static unique_ptr<GlobalTableFunctionState> DiscoverModelsInitGlobal(ClientContext &context,
-                                                                       TableFunctionInitInput & /*input*/) {
+                                                                     TableFunctionInitInput & /*input*/) {
 	auto gstate = make_uniq<DiscoverModelsGlobalState>();
 	gstate->models = ScanGgufModels(FileSystem::GetFileSystem(context));
 	return gstate;
@@ -2242,7 +2243,7 @@ static unique_ptr<GlobalTableFunctionState> DiscoverModelsInitGlobal(ClientConte
 
 static void DiscoverModelsScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &gstate = data_p.global_state->Cast<DiscoverModelsGlobalState>();
-	idx_t count  = 0;
+	idx_t count = 0;
 	while (gstate.row < gstate.models.size() && count < STANDARD_VECTOR_SIZE) {
 		auto &m = gstate.models[gstate.row];
 		output.data[0].SetValue(count, Value(m.name));
@@ -2261,14 +2262,14 @@ static void DiscoverModelsScan(ClientContext & /*context*/, TableFunctionInput &
 
 struct ImportModelBindData : public FunctionData {
 	string source_path;
-	string dest_name;   // filename without .gguf
-	string dest_path;   // full destination path
+	string dest_name; // filename without .gguf
+	string dest_path; // full destination path
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto copy = make_uniq<ImportModelBindData>();
 		copy->source_path = source_path;
-		copy->dest_name   = dest_name;
-		copy->dest_path   = dest_path;
+		copy->dest_name = dest_name;
+		copy->dest_path = dest_path;
 		return std::move(copy);
 	}
 	bool Equals(const FunctionData &other_p) const override {
@@ -2280,18 +2281,16 @@ struct ImportModelBindData : public FunctionData {
 struct ImportModelGlobalState : public GlobalTableFunctionState {
 	string status;
 	string destination;
-	bool   returned = false;
+	bool returned = false;
 };
 
-static unique_ptr<FunctionData> ImportModelBind(ClientContext &context,
-                                                 TableFunctionBindInput &input,
-                                                 vector<LogicalType> &return_types,
-                                                 vector<string> &names) {
+static unique_ptr<FunctionData> ImportModelBind(ClientContext &context, TableFunctionBindInput &input,
+                                                vector<LogicalType> &return_types, vector<string> &names) {
 	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR};
-	names        = {"status", "destination"};
+	names = {"status", "destination"};
 
-	auto &fs   = FileSystem::GetFileSystem(context);
-	auto  bind = make_uniq<ImportModelBindData>();
+	auto &fs = FileSystem::GetFileSystem(context);
+	auto bind = make_uniq<ImportModelBindData>();
 
 	bind->source_path = ResolveModelPath(StringValue::Get(input.inputs[0]), fs);
 
@@ -2301,7 +2300,7 @@ static unique_ptr<FunctionData> ImportModelBind(ClientContext &context,
 	} else {
 		// Derive from source filename without extension
 		auto slash = bind->source_path.rfind('/');
-		string fn  = (slash != string::npos) ? bind->source_path.substr(slash + 1) : bind->source_path;
+		string fn = (slash != string::npos) ? bind->source_path.substr(slash + 1) : bind->source_path;
 		bind->dest_name = fn;
 		if (bind->dest_name.size() > 5 && bind->dest_name.substr(bind->dest_name.size() - 5) == ".gguf") {
 			bind->dest_name = bind->dest_name.substr(0, bind->dest_name.size() - 5);
@@ -2313,10 +2312,10 @@ static unique_ptr<FunctionData> ImportModelBind(ClientContext &context,
 }
 
 static unique_ptr<GlobalTableFunctionState> ImportModelInitGlobal(ClientContext &context,
-                                                                    TableFunctionInitInput &input) {
+                                                                  TableFunctionInitInput &input) {
 	auto &bind = input.bind_data->Cast<ImportModelBindData>();
-	auto  state = make_uniq<ImportModelGlobalState>();
-	auto &fs    = FileSystem::GetFileSystem(context);
+	auto state = make_uniq<ImportModelGlobalState>();
+	auto &fs = FileSystem::GetFileSystem(context);
 
 	// Ensure managed dir exists
 	if (!MakeDirectories(GetModelsModelsDir(fs))) {
@@ -2332,7 +2331,7 @@ static unique_ptr<GlobalTableFunctionState> ImportModelInitGlobal(ClientContext 
 	// Already there?
 	struct stat dst_st;
 	if (stat(bind.dest_path.c_str(), &dst_st) == 0 && dst_st.st_size == src_st.st_size) {
-		state->status      = "already_present";
+		state->status = "already_present";
 		state->destination = bind.dest_path;
 		fprintf(stderr, "Model already in managed dir: %s\n", bind.dest_path.c_str());
 		return state;
@@ -2343,31 +2342,35 @@ static unique_ptr<GlobalTableFunctionState> ImportModelInitGlobal(ClientContext 
 	fprintf(stderr, "Importing %.1f MB → %s\n", total / 1e6, bind.dest_path.c_str());
 
 	FILE *src = fopen(bind.source_path.c_str(), "rb");
-	if (!src) throw IOException("Cannot open source: %s", bind.source_path);
+	if (!src)
+		throw IOException("Cannot open source: %s", bind.source_path);
 
 	FILE *dst = fopen(bind.dest_path.c_str(), "wb");
-	if (!dst) { fclose(src); throw IOException("Cannot open destination: %s", bind.dest_path); }
+	if (!dst) {
+		fclose(src);
+		throw IOException("Cannot open destination: %s", bind.dest_path);
+	}
 
 	static constexpr size_t BUF = 4 * 1024 * 1024; // 4 MB copy buffer
 	vector<char> buf(BUF);
 	int64_t copied = 0;
-	size_t  n;
+	size_t n;
 	while ((n = fread(buf.data(), 1, BUF, src)) > 0) {
 		if (fwrite(buf.data(), 1, n, dst) != n) {
-			fclose(src); fclose(dst);
+			fclose(src);
+			fclose(dst);
 			remove(bind.dest_path.c_str());
 			throw IOException("Write error while importing %s", bind.dest_path);
 		}
 		copied += static_cast<int64_t>(n);
-		fprintf(stderr, "\r  %.1f / %.1f MB (%.0f%%)   ",
-		        copied / 1e6, total / 1e6, 100.0 * copied / total);
+		fprintf(stderr, "\r  %.1f / %.1f MB (%.0f%%)   ", copied / 1e6, total / 1e6, 100.0 * copied / total);
 		fflush(stderr);
 	}
 	fclose(src);
 	fclose(dst);
 	fprintf(stderr, "\r  %.1f MB — done.%*s\n", total / 1e6, 20, "");
 
-	state->status      = "imported";
+	state->status = "imported";
 	state->destination = bind.dest_path;
 	fprintf(stderr, "Imported to: %s\n", bind.dest_path.c_str());
 	fprintf(stderr, "To use: SET llama_model_path = '%s';\n", bind.dest_name.c_str());
@@ -2376,7 +2379,8 @@ static unique_ptr<GlobalTableFunctionState> ImportModelInitGlobal(ClientContext 
 
 static void ImportModelScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &state = data_p.global_state->Cast<ImportModelGlobalState>();
-	if (state.returned) return;
+	if (state.returned)
+		return;
 	state.returned = true;
 	output.SetCardinality(1);
 	output.data[0].SetValue(0, Value(state.status));
@@ -2390,33 +2394,35 @@ static void ImportModelScan(ClientContext & /*context*/, TableFunctionInput &dat
 
 struct SetupModelsGlobalState : public GlobalTableFunctionState {
 	vector<string> messages;
-	idx_t          row = 0;
+	idx_t row = 0;
 };
 
 struct SetupModelsBindData : public FunctionData {
 	bool save_override = false; // override:=true — write setup.sql even if it differs
-	bool claude        = false; // claude:=true  — configure Claude CLI instead of llama
+	bool claude = false;        // claude:=true  — configure Claude CLI instead of llama
 	unique_ptr<FunctionData> Copy() const override {
-		auto c = make_uniq<SetupModelsBindData>(); c->save_override = save_override; c->claude = claude; return std::move(c);
+		auto c = make_uniq<SetupModelsBindData>();
+		c->save_override = save_override;
+		c->claude = claude;
+		return std::move(c);
 	}
 	bool Equals(const FunctionData &o) const override {
-		auto &oc = o.Cast<SetupModelsBindData>(); return save_override == oc.save_override && claude == oc.claude;
+		auto &oc = o.Cast<SetupModelsBindData>();
+		return save_override == oc.save_override && claude == oc.claude;
 	}
 };
 
-static unique_ptr<FunctionData> SetupModelsBind(ClientContext & /*context*/,
-                                                TableFunctionBindInput &input,
-                                                vector<LogicalType> &return_types,
-                                                vector<string> &names) {
+static unique_ptr<FunctionData> SetupModelsBind(ClientContext & /*context*/, TableFunctionBindInput &input,
+                                                vector<LogicalType> &return_types, vector<string> &names) {
 	return_types = {LogicalType::VARCHAR};
-	names        = {"status"};
+	names = {"status"};
 	auto bind = make_uniq<SetupModelsBindData>();
 	auto get_bool = [&](const string &key) {
 		auto it = input.named_parameters.find(key);
 		return it != input.named_parameters.end() && !it->second.IsNull() && BooleanValue::Get(it->second);
 	};
 	bind->save_override = get_bool("override");
-	bind->claude        = get_bool("claude");
+	bind->claude = get_bool("claude");
 	return std::move(bind);
 }
 
@@ -2428,27 +2434,29 @@ static string GenerateSetupSQL(ClientContext &context) {
 	};
 
 	string sql = "-- DuckDB models extension setup (auto-generated by setup_models)\n";
-	sql += "SET sql_expert_model         = '" + read("sql_expert_model")         + "';\n";
-	sql += "SET coordinator_model        = '" + read("coordinator_model")        + "';\n";
-	sql += "SET coordinator_time_budget  = "  + read("coordinator_time_budget")  + ";\n";
-	sql += "SET coordinator_max_rounds   = "  + read("coordinator_max_rounds")   + ";\n";
-	sql += "SET sql_expert_model_style   = '" + read("sql_expert_model_style")   + "';\n";
-	sql += "SET llama_context_size       = "  + read("llama_context_size")       + ";\n";
-	sql += "SET llama_gpu_layers         = "  + read("llama_gpu_layers")         + ";\n";
+	sql += "SET sql_expert_model         = '" + read("sql_expert_model") + "';\n";
+	sql += "SET coordinator_model        = '" + read("coordinator_model") + "';\n";
+	sql += "SET coordinator_time_budget  = " + read("coordinator_time_budget") + ";\n";
+	sql += "SET coordinator_max_rounds   = " + read("coordinator_max_rounds") + ";\n";
+	sql += "SET sql_expert_model_style   = '" + read("sql_expert_model_style") + "';\n";
+	sql += "SET llama_context_size       = " + read("llama_context_size") + ";\n";
+	sql += "SET llama_gpu_layers         = " + read("llama_gpu_layers") + ";\n";
 	return sql;
 }
 
 static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext &context,
-                                                                   TableFunctionInitInput &input) {
+                                                                  TableFunctionInitInput &input) {
 	auto gstate = make_uniq<SetupModelsGlobalState>();
-	auto &fs    = FileSystem::GetFileSystem(context);
-	auto &db    = *context.db;
+	auto &fs = FileSystem::GetFileSystem(context);
+	auto &db = *context.db;
 
 	bool save_override = input.bind_data ? input.bind_data->Cast<SetupModelsBindData>().save_override : false;
-	bool use_claude    = input.bind_data ? input.bind_data->Cast<SetupModelsBindData>().claude        : false;
+	bool use_claude = input.bind_data ? input.bind_data->Cast<SetupModelsBindData>().claude : false;
 
 	auto &msgs = gstate->messages;
-	auto emit  = [&](const string &s) { msgs.push_back(s); };
+	auto emit = [&](const string &s) {
+		msgs.push_back(s);
+	};
 
 	// Helper: persist current settings to setup.sql.
 	// - File absent        → create it (always)
@@ -2460,7 +2468,7 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 			emit("Warning: could not create data dir, setup not saved.");
 			return;
 		}
-		string new_sql  = GenerateSetupSQL(context);
+		string new_sql = GenerateSetupSQL(context);
 		string existing = ReadFileContent(setup_path);
 		if (!existing.empty()) {
 			if (StripSQLComments(existing) == StripSQLComments(new_sql)) {
@@ -2477,7 +2485,8 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 					size_t i = 0;
 					while (i <= s.size()) {
 						size_t nl = s.find('\n', i);
-						if (nl == string::npos) nl = s.size();
+						if (nl == string::npos)
+							nl = s.size();
 						v.push_back(s.substr(i, nl - i));
 						i = nl + 1;
 					}
@@ -2487,22 +2496,36 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 				auto new_lines = lines(new_stripped);
 				for (auto &l : old_lines) {
 					bool found = false;
-					for (auto &nl : new_lines) { if (l == nl) { found = true; break; } }
-					if (!found && !l.empty()) diff_msg += "  - " + l + "\n";
+					for (auto &nl : new_lines) {
+						if (l == nl) {
+							found = true;
+							break;
+						}
+					}
+					if (!found && !l.empty())
+						diff_msg += "  - " + l + "\n";
 				}
 				for (auto &nl : new_lines) {
 					bool found = false;
-					for (auto &l : old_lines) { if (nl == l) { found = true; break; } }
-					if (!found && !nl.empty()) diff_msg += "  + " + nl + "\n";
+					for (auto &l : old_lines) {
+						if (nl == l) {
+							found = true;
+							break;
+						}
+					}
+					if (!found && !nl.empty())
+						diff_msg += "  + " + nl + "\n";
 				}
 				emit("Warning: setup.sql has different content (not overwritten):");
 				// Emit each diff line as a separate row so the table renders cleanly.
 				size_t pos = 0;
 				while (pos < diff_msg.size()) {
 					size_t nl = diff_msg.find('\n', pos);
-					if (nl == string::npos) nl = diff_msg.size();
+					if (nl == string::npos)
+						nl = diff_msg.size();
 					string line = diff_msg.substr(pos, nl - pos);
-					if (!line.empty()) emit(line);
+					if (!line.empty())
+						emit(line);
 					pos = nl + 1;
 				}
 				emit("  Pass override:=true to overwrite: CALL setup_models(override:=true);");
@@ -2510,7 +2533,10 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 			}
 		}
 		FILE *f = fopen(setup_path.c_str(), "w");
-		if (!f) { emit("Warning: could not write " + setup_path); return; }
+		if (!f) {
+			emit("Warning: could not write " + setup_path);
+			return;
+		}
 		fwrite(new_sql.c_str(), 1, new_sql.size(), f);
 		fclose(f);
 		emit("Setup saved to " + setup_path);
@@ -2519,7 +2545,7 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 	// ----- load from setup.sql as the base (explicit flags applied on top) --------------
 
 	string setup_path = GetModelsSetupPath(fs);
-	string existing   = ReadFileContent(setup_path);
+	string existing = ReadFileContent(setup_path);
 	if (!existing.empty()) {
 		emit("Loading setup from " + setup_path);
 		// Strip comment lines first so a leading comment doesn't swallow the
@@ -2528,7 +2554,8 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 		size_t i = 0;
 		while (i < stripped.size()) {
 			size_t semi = stripped.find(';', i);
-			if (semi == string::npos) break;
+			if (semi == string::npos)
+				break;
 			string stmt = stripped.substr(i, semi - i + 1);
 			size_t start = stmt.find_first_not_of(" \t\r\n");
 			if (start != string::npos) {
@@ -2553,7 +2580,8 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 
 	auto is_downloaded = [&](const string &name) -> bool {
 		auto it = KNOWN_MODELS.find(name);
-		if (it == KNOWN_MODELS.end()) return false;
+		if (it == KNOWN_MODELS.end())
+			return false;
 		auto slash = it->second.rfind('/');
 		string filename = (slash != string::npos) ? it->second.substr(slash + 1) : it->second;
 		string path = GetModelsModelsDir(fs) + "/" + filename;
@@ -2570,10 +2598,12 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 		const DiscoveredModel *best = nullptr;
 		for (auto &m : discovered) {
 			if (StringUtil::Lower(m.name).find(name_lower) != string::npos) {
-				if (!best || m.size_bytes > best->size_bytes) best = &m;
+				if (!best || m.size_bytes > best->size_bytes)
+					best = &m;
 			}
 		}
-		if (!best) return false;
+		if (!best)
+			return false;
 
 		auto it = KNOWN_MODELS.find(name);
 		string dest_name;
@@ -2592,8 +2622,8 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 			return true;
 		}
 
-		emit(StringUtil::Format("[✓] Found %s in %s (%s) — importing instead of downloading",
-		                        name, best->source, best->path));
+		emit(StringUtil::Format("[✓] Found %s in %s (%s) — importing instead of downloading", name, best->source,
+		                        best->path));
 		Connection conn(db);
 		auto res = conn.Query("CALL llama_import_model('" + best->path + "', '" + dest_name + "')");
 		if (res->HasError()) {
@@ -2628,9 +2658,9 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 	// ----- claude:=true path — no downloads, just configure Claude CLI -----
 
 	if (use_claude) {
-		set_str("sql_expert_model",       "claude");
-		set_str("coordinator_model",      "claude");
-		set_num("coordinator_time_budget","120.0");
+		set_str("sql_expert_model", "claude");
+		set_str("coordinator_model", "claude");
+		set_num("coordinator_time_budget", "120.0");
 		set_num("coordinator_max_rounds", "15");
 		emit("Settings configured (Claude CLI backend):");
 		emit("  sql_expert_model       = claude");
@@ -2646,7 +2676,7 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 
 	// ----- llama path: acquire models (local first, then download) -------
 
-	static const char WORKER[]      = "sqlcoder-7b-2";
+	static const char WORKER[] = "sqlcoder-7b-2";
 	static const char COORDINATOR[] = "qwen2.5-3b";
 
 	if (is_downloaded(WORKER)) {
@@ -2663,10 +2693,10 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 
 	// ----- configure settings --------------------------------------------
 
-	set_str("sql_expert_model",        WORKER);
-	set_str("coordinator_model",       COORDINATOR);
+	set_str("sql_expert_model", WORKER);
+	set_str("coordinator_model", COORDINATOR);
 	set_num("coordinator_time_budget", "120.0");
-	set_num("coordinator_max_rounds",  "15");
+	set_num("coordinator_max_rounds", "15");
 
 	emit("Settings configured (local llama backend):");
 	emit(string("  sql_expert_model        = ") + WORKER);
@@ -2696,7 +2726,7 @@ static unique_ptr<GlobalTableFunctionState> SetupModelsInitGlobal(ClientContext 
 
 static void SetupModelsScan(ClientContext & /*context*/, TableFunctionInput &data_p, DataChunk &output) {
 	auto &gstate = data_p.global_state->Cast<SetupModelsGlobalState>();
-	idx_t count  = 0;
+	idx_t count = 0;
 	while (gstate.row < gstate.messages.size() && count < STANDARD_VECTOR_SIZE) {
 		output.data[0].SetValue(count, Value(gstate.messages[gstate.row]));
 		gstate.row++;
@@ -2706,14 +2736,13 @@ static void SetupModelsScan(ClientContext & /*context*/, TableFunctionInput &dat
 }
 
 // Replacement scan: FROM llama_instructions (no parentheses)
-static unique_ptr<TableRef> LlamaInstructionsReplacementScan(ClientContext &context,
-                                                              ReplacementScanInput &input,
-                                                              optional_ptr<ReplacementScanData> /*data*/) {
+static unique_ptr<TableRef> LlamaInstructionsReplacementScan(ClientContext &context, ReplacementScanInput &input,
+                                                             optional_ptr<ReplacementScanData> /*data*/) {
 	if (input.table_name != "llama_instructions") {
 		return nullptr;
 	}
 	vector<LogicalType> types = {LogicalType::VARCHAR, LogicalType::VARCHAR};
-	vector<string>      names = {"task", "hint"};
+	vector<string> names = {"task", "hint"};
 	auto collection = make_uniq<ColumnDataCollection>(context, types);
 	DataChunk chunk;
 	chunk.Initialize(context, types);
@@ -2742,11 +2771,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 #ifdef MODELS_SHELL_EXT
 	// Shell dot-command: .claude <question>
 	ShellCommandExtension claude_shell_cmd;
-	claude_shell_cmd.command     = "claude";
-	claude_shell_cmd.usage       = "<question>";
+	claude_shell_cmd.command = "claude";
+	claude_shell_cmd.usage = "<question>";
 	claude_shell_cmd.description = "Ask a question about your DuckDB database (run CALL setup_models() to configure)";
-	claude_shell_cmd.callback    = ModelsShellCommand;
-	claude_shell_cmd.info        = state;
+	claude_shell_cmd.callback = ModelsShellCommand;
+	claude_shell_cmd.info = state;
 	loader.RegisterShellCommand(std::move(claude_shell_cmd));
 #endif // MODELS_SHELL_EXT
 
@@ -2754,47 +2783,45 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Primary model settings — backend inferred from value:
 	//   empty or "claude" → Claude CLI subprocess
 	//   anything else     → local llama.cpp (GGUF path or short name)
-	config.AddExtensionOption("sql_expert_model",
+	config.AddExtensionOption(
+	    "sql_expert_model",
 	    "SQL expert model: 'claude' = Claude CLI, short-name or path = local llama GGUF (default: '' = not configured)",
 	    LogicalType::VARCHAR, Value(""), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("coordinator_model",
+	config.AddExtensionOption(
+	    "coordinator_model",
 	    "Coordinator model: 'claude' = Claude CLI, short-name or path = local llama GGUF, '' = none",
 	    LogicalType::VARCHAR, Value(""), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("coordinator_time_budget",
-	    "Wall-clock time budget for coordinator loop (seconds)",
-	    LogicalType::DOUBLE, Value(60.0), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("coordinator_max_rounds",
-	    "Max coordinator iterations",
-	    LogicalType::INTEGER, Value::INTEGER(12), nullptr, SetScope::GLOBAL);
+	config.AddExtensionOption("coordinator_time_budget", "Wall-clock time budget for coordinator loop (seconds)",
+	                          LogicalType::DOUBLE, Value(60.0), nullptr, SetScope::GLOBAL);
+	config.AddExtensionOption("coordinator_max_rounds", "Max coordinator iterations", LogicalType::INTEGER,
+	                          Value::INTEGER(12), nullptr, SetScope::GLOBAL);
 	config.AddExtensionOption("sql_expert_model_style",
-	    "Prompt style for sql_expert_model: 'auto' (detect from name), 'chat', 'sqlcoder'",
-	    LogicalType::VARCHAR, Value("auto"), nullptr, SetScope::GLOBAL);
+	                          "Prompt style for sql_expert_model: 'auto' (detect from name), 'chat', 'sqlcoder'",
+	                          LogicalType::VARCHAR, Value("auto"), nullptr, SetScope::GLOBAL);
 
 	// llama.cpp-specific tuning (only relevant when a GGUF model is active)
-	config.AddExtensionOption("llama_context_size",
-	    "Context window size in tokens for llama models",
-	    LogicalType::INTEGER, Value::INTEGER(8192), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("llama_gpu_layers",
-	    "Number of layers to offload to GPU for llama models (-1 = all)",
-	    LogicalType::INTEGER, Value::INTEGER(-1), nullptr, SetScope::GLOBAL);
+	config.AddExtensionOption("llama_context_size", "Context window size in tokens for llama models",
+	                          LogicalType::INTEGER, Value::INTEGER(8192), nullptr, SetScope::GLOBAL);
+	config.AddExtensionOption("llama_gpu_layers", "Number of layers to offload to GPU for llama models (-1 = all)",
+	                          LogicalType::INTEGER, Value::INTEGER(-1), nullptr, SetScope::GLOBAL);
 
 	// Table function: CALL llama_download_model(url_or_name)
-	TableFunction download_tf("llama_download_model", {LogicalType::VARCHAR},
-	                          DownloadModelScan, DownloadModelBind, DownloadModelInitGlobal);
+	TableFunction download_tf("llama_download_model", {LogicalType::VARCHAR}, DownloadModelScan, DownloadModelBind,
+	                          DownloadModelInitGlobal);
 	loader.RegisterFunction(std::move(download_tf));
 
 	// Table function: FROM llama_discover_models() — scan well-known GGUF locations
-	TableFunction discover_tf("llama_discover_models", {},
-	                          DiscoverModelsScan, DiscoverModelsBind, DiscoverModelsInitGlobal);
+	TableFunction discover_tf("llama_discover_models", {}, DiscoverModelsScan, DiscoverModelsBind,
+	                          DiscoverModelsInitGlobal);
 	loader.RegisterFunction(std::move(discover_tf));
 
 	// Table function: CALL llama_import_model(source [, name]) — copy GGUF to managed dir
 	// Two overloads: 1-arg and 2-arg (source + optional dest_name).
 	TableFunctionSet import_set("llama_import_model");
-	import_set.AddFunction(TableFunction({LogicalType::VARCHAR},
-	                        ImportModelScan, ImportModelBind, ImportModelInitGlobal));
-	import_set.AddFunction(TableFunction({LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                        ImportModelScan, ImportModelBind, ImportModelInitGlobal));
+	import_set.AddFunction(
+	    TableFunction({LogicalType::VARCHAR}, ImportModelScan, ImportModelBind, ImportModelInitGlobal));
+	import_set.AddFunction(TableFunction({LogicalType::VARCHAR, LogicalType::VARCHAR}, ImportModelScan, ImportModelBind,
+	                                     ImportModelInitGlobal));
 	loader.RegisterFunction(std::move(import_set));
 
 	// Table function: FROM models_interactions()
@@ -2808,20 +2835,19 @@ static void LoadInternal(ExtensionLoader &loader) {
 	DBConfig::GetConfig(db).replacement_scans.emplace_back(ModelsInteractionsReplacementScan, std::move(scan_data));
 
 	// Table function + replacement scan: FROM llama_instructions / FROM llama_instructions()
-	TableFunction instr_tf("llama_instructions", {}, LlamaInstructionsScan,
-	                       LlamaInstructionsBind, LlamaInstructionsInitGlobal);
+	TableFunction instr_tf("llama_instructions", {}, LlamaInstructionsScan, LlamaInstructionsBind,
+	                       LlamaInstructionsInitGlobal);
 	loader.RegisterFunction(std::move(instr_tf));
 	DBConfig::GetConfig(db).replacement_scans.emplace_back(LlamaInstructionsReplacementScan, nullptr);
 
 	// Table function + replacement scan: FROM llama_error_hints / FROM llama_error_hints()
-	TableFunction errhints_tf("llama_error_hints", {}, LlamaErrorHintsScan,
-	                          LlamaErrorHintsBind, LlamaErrorHintsInitGlobal);
+	TableFunction errhints_tf("llama_error_hints", {}, LlamaErrorHintsScan, LlamaErrorHintsBind,
+	                          LlamaErrorHintsInitGlobal);
 	loader.RegisterFunction(std::move(errhints_tf));
 	DBConfig::GetConfig(db).replacement_scans.emplace_back(LlamaErrorHintsReplacementScan, nullptr);
 
 	// Table function + replacement scan: FROM llama_models / FROM llama_models()
-	TableFunction models_tf("llama_models", {}, LlamaModelsScan,
-	                        LlamaModelsBind, LlamaModelsInitGlobal);
+	TableFunction models_tf("llama_models", {}, LlamaModelsScan, LlamaModelsBind, LlamaModelsInitGlobal);
 	loader.RegisterFunction(std::move(models_tf));
 	DBConfig::GetConfig(db).replacement_scans.emplace_back(LlamaModelsReplacementScan, nullptr);
 
@@ -2829,15 +2855,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// setup_models()                  — load setup.sql if present; else full llama setup + save
 	// setup_models(claude:=true)      — configure Claude CLI backend + save
 	// setup_models(override:=true)    — allow overwriting an existing setup.sql that differs
-	TableFunction setup_tf("setup_models", {}, SetupModelsScan,
-	                       SetupModelsBind, SetupModelsInitGlobal);
-	setup_tf.named_parameters["claude"]   = LogicalType::BOOLEAN;
+	TableFunction setup_tf("setup_models", {}, SetupModelsScan, SetupModelsBind, SetupModelsInitGlobal);
+	setup_tf.named_parameters["claude"] = LogicalType::BOOLEAN;
 	setup_tf.named_parameters["override"] = LogicalType::BOOLEAN;
 	loader.RegisterFunction(std::move(setup_tf));
 
 	// Table function: CALL ask_models('question') — SQL equivalent of .claude <question>
-	TableFunction ask_tf("ask_models", {LogicalType::VARCHAR}, AskModelsScan,
-	                     AskModelsBind, AskModelsInitGlobal);
+	TableFunction ask_tf("ask_models", {LogicalType::VARCHAR}, AskModelsScan, AskModelsBind, AskModelsInitGlobal);
 	ask_tf.function_info = make_shared_ptr<ModelsTableFunctionInfo>(state);
 	loader.RegisterFunction(std::move(ask_tf));
 
