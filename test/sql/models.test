@@ -1,0 +1,10 @@
+# name: test/sql/models.test
+# description: test models extension
+# group: [sql]
+
+# Require statement will ensure this test is run with this extension loaded
+require models
+
+# TODO: add models extension tests
+# See plans/testing-strategy.md for the full testing strategy.
+# Tier 1 tests (no model required) should be added here first.

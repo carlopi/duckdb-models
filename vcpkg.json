@@ -1,6 +1,6 @@
 {
         "dependencies": [
-                "openssl"
+                "llama-cpp"
         ],
         "vcpkg-configuration": {
                 "overlay-ports": [
