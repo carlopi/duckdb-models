@@ -11,7 +11,9 @@
 #include "duckdb/main/connection.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#ifdef MODELS_SHELL_EXT
 #include "duckdb/main/shell_command_extension.hpp"
+#endif
 #include "duckdb/common/http_util.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"

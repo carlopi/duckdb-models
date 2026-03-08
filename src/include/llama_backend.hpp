@@ -2,8 +2,27 @@
 
 #include "models_internal.hpp"  // provides InteractionStats, WorkerFn
 #include "duckdb/common/string.hpp"
-#include "duckdb/main/shell_command_extension.hpp"
 #include "duckdb/main/client_context.hpp"
+
+#ifdef MODELS_SHELL_EXT
+#include "duckdb/main/shell_command_extension.hpp"
+#else
+#include "duckdb/common/exception.hpp"
+namespace duckdb {
+struct BaseShellState {
+	virtual idx_t GetTerminalWidth() const {
+		throw NotImplementedException("GetTerminalWidth not implemented");
+	}
+	virtual void ShellPrint(const string &str) {
+		throw NotImplementedException("ShellPrint not implemented");
+	}
+	virtual void ShellPrintError(const string &str) {
+		throw NotImplementedException("ShellPrintError not implemented");
+	}
+	virtual ~BaseShellState() = default;
+};
+} // namespace duckdb
+#endif
 
 #include <functional>
 #include <llama.h>
