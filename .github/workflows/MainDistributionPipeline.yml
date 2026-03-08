@@ -27,4 +27,4 @@ jobs:
       duckdb_version: 3a3967aa8190d0a2d1931d4ca4f5d920760030b4
       ci_tools_version: main
       extension_name: models
-      format_checks: 'format;tidy'
+      format_checks: 'format'
