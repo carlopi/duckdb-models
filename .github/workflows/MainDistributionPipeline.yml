@@ -16,15 +16,15 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.4
     with:
-      duckdb_version: v1.4.4
-      ci_tools_version: v1.4.4
+      duckdb_version: 3a3967aa8190d0a2d1931d4ca4f5d920760030b4
+      ci_tools_version: main
       extension_name: quack
 
   code-quality-check:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.4.4
     with:
-      duckdb_version: v1.4.4
-      ci_tools_version: v1.4.4
+      duckdb_version: 3a3967aa8190d0a2d1931d4ca4f5d920760030b4
+      ci_tools_version: main
       extension_name: quack
       format_checks: 'format;tidy'
