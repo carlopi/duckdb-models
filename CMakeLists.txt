@@ -35,6 +35,14 @@ set(_llama_hints
 # llama's transitive find_package(ggml) also works.
 list(APPEND CMAKE_PREFIX_PATH "${_vcpkg_classic}/${_triplet}")
 
+# llama-config.cmake uses set_and_check() on a bin/ dir that static-only
+# vcpkg triplets (e.g. arm64-linux-release) never create. Pre-create it so
+# the config file doesn't abort. VCPKG_INSTALLED_DIR / VCPKG_TARGET_TRIPLET
+# are injected by the vcpkg cmake toolchain and give us the exact path.
+if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+  file(MAKE_DIRECTORY "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
+endif()
+
 find_package(llama CONFIG HINTS ${_llama_hints})
 if(llama_FOUND)
   message(STATUS "llama.cpp found")
